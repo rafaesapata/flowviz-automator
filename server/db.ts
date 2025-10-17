@@ -85,4 +85,39 @@ export async function getUser(id: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Queries para CNAB
+import { cnabFiles, cnabLogs, InsertCnabFile, InsertCnabLog } from "../drizzle/schema";
+import { desc } from "drizzle-orm";
+
+export async function createCnabFile(file: InsertCnabFile) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(cnabFiles).values(file);
+  return file;
+}
+
+export async function getCnabFiles(userId: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(cnabFiles).where(eq(cnabFiles.userId, userId)).orderBy(desc(cnabFiles.uploadedAt));
+}
+
+export async function updateCnabFileStatus(id: string, status: "pending" | "processing" | "completed" | "error", qprofNumber?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const updateData: any = { status, processedAt: new Date() };
+  if (qprofNumber) updateData.qprofNumber = qprofNumber;
+  await db.update(cnabFiles).set(updateData).where(eq(cnabFiles.id, id));
+}
+
+export async function createCnabLog(log: InsertCnabLog) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(cnabLogs).values(log);
+}
+
+export async function getCnabLogs(fileId: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(cnabLogs).where(eq(cnabLogs.fileId, fileId)).orderBy(desc(cnabLogs.timestamp));
+}

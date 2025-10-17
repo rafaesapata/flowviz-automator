@@ -18,4 +18,28 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+// Tabelas da automação CNAB
+export const cnabFiles = mysqlTable("cnabFiles", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  fileName: varchar("fileName", { length: 255 }).notNull(),
+  fileSize: varchar("fileSize", { length: 64 }),
+  status: mysqlEnum("status", ["pending", "processing", "completed", "error"]).default("pending").notNull(),
+  qprofNumber: varchar("qprofNumber", { length: 64 }),
+  uploadedAt: timestamp("uploadedAt").defaultNow(),
+  processedAt: timestamp("processedAt"),
+  userId: varchar("userId", { length: 64 }).notNull(),
+});
+
+export const cnabLogs = mysqlTable("cnabLogs", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  fileId: varchar("fileId", { length: 64 }).notNull(),
+  timestamp: timestamp("timestamp").defaultNow(),
+  level: mysqlEnum("level", ["info", "warning", "error", "success"]).notNull(),
+  message: text("message").notNull(),
+  details: text("details"),
+});
+
+export type CnabFile = typeof cnabFiles.$inferSelect;
+export type InsertCnabFile = typeof cnabFiles.$inferInsert;
+export type CnabLog = typeof cnabLogs.$inferSelect;
+export type InsertCnabLog = typeof cnabLogs.$inferInsert;
