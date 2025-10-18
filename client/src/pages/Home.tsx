@@ -1,26 +1,63 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { APP_TITLE, getLoginUrl } from "@/const";
-import { trpc } from "@/lib/trpc";
-import { Upload, FileText, Activity, CheckCircle, XCircle, Clock, TrendingUp, DollarSign } from "lucide-react";
-import { useState } from "react";
+import { APP_TITLE } from "@/const";
+import { Upload, FileText, Activity, CheckCircle, XCircle, Clock, LogOut } from "lucide-react";
+import { toast } from "sonner";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 
 export default function Home() {
-  const { user, isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
+  const [user, setUser] = useState<any>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   
+  const token = localStorage.getItem('auth_token');
+  const meQuery = trpc.auth.me.useQuery({ token: token || undefined }, { enabled: !!token });
+
+  useEffect(() => {
+    if (!token) {
+      setLocation('/login');
+      return;
+    }
+    if (meQuery.data) {
+      setUser(meQuery.data);
+    } else if (meQuery.isError) {
+      localStorage.removeItem('auth_token');
+      setLocation('/login');
+    }
+  }, [token, meQuery.data, meQuery.isError, setLocation]);
+
   const { data: files = [], refetch } = trpc.cnab.listFiles.useQuery(undefined, {
-    enabled: isAuthenticated,
+    enabled: !!user,
   });
   
   const uploadMutation = trpc.cnab.uploadFile.useMutation({
     onSuccess: () => {
       refetch();
       setSelectedFile(null);
+      toast.success('Arquivo enviado com sucesso!');
+    },
+    onError: (error) => {
+      toast.error(`Erro ao enviar: ${error.message}`);
     },
   });
+
+  const processMutation = trpc.cnab.processFile.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast.success('Processamento iniciado!');
+    },
+    onError: (error) => {
+      toast.error(`Erro: ${error.message}`);
+    },
+  });
+
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token');
+    setLocation('/login');
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -29,231 +66,220 @@ export default function Home() {
     }
   };
 
-  const handleUpload = () => {
-    if (selectedFile) {
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const base64 = e.target?.result?.toString().split(',')[1];
+      if (!base64) return;
+
       uploadMutation.mutate({
-        fileName: selectedFile.name,
-        fileSize: `${(selectedFile.size / 1024).toFixed(2)} KB`,
+        filename: selectedFile.name,
+        content: base64,
       });
-    }
+    };
+    reader.readAsDataURL(selectedFile);
+  };
+
+  const handleProcess = (fileId: number) => {
+    processMutation.mutate({ fileId });
   };
 
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, { className: string, icon: any, label: string }> = {
-      pending: { className: "bg-gray-100 text-gray-700 border-gray-300", icon: Clock, label: "Pendente" },
-      processing: { className: "bg-blue-100 text-blue-700 border-blue-300", icon: Activity, label: "Processando" },
-      completed: { className: "bg-green-100 text-green-700 border-green-300", icon: CheckCircle, label: "Concluído" },
-      error: { className: "bg-red-100 text-red-700 border-red-300", icon: XCircle, label: "Erro" },
-    };
-    const config = variants[status] || variants.pending;
-    const Icon = config.icon;
-    return (
-      <Badge variant="outline" className={`gap-1 ${config.className}`}>
-        <Icon className="h-3 w-3" />
-        {config.label}
-      </Badge>
-    );
+    switch (status) {
+      case 'pending':
+        return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200"><Clock className="w-3 h-3 mr-1" />Pendente</Badge>;
+      case 'processing':
+        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200"><Activity className="w-3 h-3 mr-1" />Processando</Badge>;
+      case 'completed':
+        return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />Concluído</Badge>;
+      case 'error':
+        return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200"><XCircle className="w-3 h-3 mr-1" />Erro</Badge>;
+      default:
+        return <Badge>{status}</Badge>;
+    }
   };
 
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="w-full max-w-md shadow-lg">
-          <CardHeader className="text-center space-y-4">
-            <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-              <Activity className="h-8 w-8 text-primary" />
-            </div>
-            <CardTitle className="text-2xl font-bold">{APP_TITLE}</CardTitle>
-            <CardDescription className="text-base">Sistema de automação para processamento de arquivos CNAB</CardDescription>
-          </CardHeader>
-          <CardContent className="flex justify-center pb-6">
-            <Button asChild size="lg" className="w-full">
-              <a href={getLoginUrl()}>Fazer Login</a>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  const stats = {
+    total: files.length,
+    pending: files.filter(f => f.status === 'pending').length,
+    completed: files.filter(f => f.status === 'completed').length,
+    errors: files.filter(f => f.status === 'error').length,
+  };
+
+  if (!user) {
+    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-[#2c5282] text-white shadow-md">
-        <div className="container mx-auto py-4 px-6 flex items-center justify-between">
+        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center">
-              <Activity className="h-6 w-6" />
-            </div>
+            <Activity className="h-8 w-8" />
             <div>
-              <h1 className="text-xl font-bold">{APP_TITLE}</h1>
-              <p className="text-sm text-blue-100">Sistema de Monitoramento de Integração</p>
+              <h1 className="text-2xl font-bold">{APP_TITLE}</h1>
+              <p className="text-sm text-blue-100">Sistema de Processamento CNAB</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm">Bem-vindo, <strong>{user?.name}</strong></span>
+            <div className="text-right">
+              <p className="text-sm font-medium">{user.name}</p>
+              <p className="text-xs text-blue-200">{user.email}</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLogout}
+              className="bg-transparent border-white text-white hover:bg-white/10"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Sair
+            </Button>
           </div>
         </div>
       </header>
 
-      <div className="container mx-auto py-8 px-6">
-        {/* Cards de Estatísticas */}
-        <div className="grid gap-6 md:grid-cols-3 mb-8">
-          <Card className="shadow-sm border-l-4 border-l-blue-500">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Total de Arquivos</CardTitle>
-              <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-                <FileText className="h-5 w-5 text-blue-600" />
-              </div>
+      <main className="container mx-auto px-4 py-8">
+        {/* Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardDescription>Total de Arquivos</CardDescription>
+              <CardTitle className="text-3xl">{stats.total}</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-gray-900">{files.length}</div>
-              <p className="text-xs text-gray-500 mt-1">Arquivos CNAB processados</p>
+              <div className="h-1 bg-blue-500 rounded"></div>
             </CardContent>
           </Card>
-
-          <Card className="shadow-sm border-l-4 border-l-green-500">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Processados</CardTitle>
-              <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              </div>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardDescription>Pendentes</CardDescription>
+              <CardTitle className="text-3xl text-yellow-600">{stats.pending}</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-gray-900">
-                {files.filter(f => f.status === "completed").length}
-              </div>
-              <p className="text-xs text-gray-500 mt-1">Concluídos com sucesso</p>
+              <div className="h-1 bg-yellow-500 rounded"></div>
             </CardContent>
           </Card>
-
-          <Card className="shadow-sm border-l-4 border-l-orange-500">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Em Processamento</CardTitle>
-              <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center">
-                <Activity className="h-5 w-5 text-orange-600" />
-              </div>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardDescription>Concluídos</CardDescription>
+              <CardTitle className="text-3xl text-green-600">{stats.completed}</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-gray-900">
-                {files.filter(f => f.status === "processing" || f.status === "pending").length}
-              </div>
-              <p className="text-xs text-gray-500 mt-1">Aguardando conclusão</p>
+              <div className="h-1 bg-green-500 rounded"></div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardDescription>Erros</CardDescription>
+              <CardTitle className="text-3xl text-red-600">{stats.errors}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-1 bg-red-500 rounded"></div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Card de Upload */}
-        <Card className="mb-8 shadow-sm">
+        {/* Upload */}
+        <Card className="mb-8">
           <CardHeader>
-            <CardTitle className="text-lg font-semibold">Enviar Arquivo CNAB</CardTitle>
-            <CardDescription>Selecione um arquivo .RET para processar no sistema QPROF</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              Upload de Arquivo CNAB
+            </CardTitle>
+            <CardDescription>Selecione um arquivo .RET para processar</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4 items-end">
-              <div className="flex-1">
-                <input
-                  type="file"
-                  accept=".RET,.ret"
-                  onChange={handleFileSelect}
-                  className="block w-full text-sm text-gray-600 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 file:cursor-pointer"
-                />
-                {selectedFile && (
-                  <p className="mt-2 text-sm text-gray-600 flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    {selectedFile.name} ({(selectedFile.size / 1024).toFixed(2)} KB)
-                  </p>
-                )}
-              </div>
+            <div className="flex gap-4">
+              <input
+                type="file"
+                accept=".RET,.ret"
+                onChange={handleFileSelect}
+                className="flex-1 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
               <Button
                 onClick={handleUpload}
                 disabled={!selectedFile || uploadMutation.isPending}
-                className="gap-2 bg-[#2c5282] hover:bg-[#1e3a5f]"
+                className="bg-[#2c5282] hover:bg-[#1e3a5f]"
               >
-                <Upload className="h-4 w-4" />
                 {uploadMutation.isPending ? "Enviando..." : "Enviar"}
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* Tabela de Histórico */}
-        <Card className="shadow-sm">
+        {/* Files Table */}
+        <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-lg font-semibold">Histórico de Arquivos</CardTitle>
-                <CardDescription>Arquivos CNAB processados e em processamento</CardDescription>
-              </div>
-              <Badge variant="secondary" className="text-sm">
-                {files.length} {files.length === 1 ? "registro" : "registros"}
-              </Badge>
-            </div>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Arquivos Processados
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {files.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <FileText className="h-8 w-8 text-gray-400" />
-                </div>
-                <p className="text-base font-medium">Nenhum arquivo enviado ainda</p>
-                <p className="text-sm mt-1">Faça o upload do primeiro arquivo CNAB para começar</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b bg-gray-50">
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Arquivo</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Data de Envio</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Tamanho</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">QPROF</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {files.map((file, idx) => (
-                      <tr
-                        key={file.id}
-                        className={`border-b hover:bg-gray-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
-                      >
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-blue-50 rounded flex items-center justify-center flex-shrink-0">
-                              <FileText className="h-4 w-4 text-blue-600" />
-                            </div>
-                            <span className="font-medium text-gray-900 text-sm">{file.fileName}</span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
-                          {new Date(file.uploadedAt!).toLocaleString("pt-BR", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit"
-                          })}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">{file.fileSize}</td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
-                          {file.qprofNumber ? (
-                            <Badge variant="outline" className="font-mono text-xs">
-                              {file.qprofNumber}
-                            </Badge>
-                          ) : (
-                            <span className="text-gray-400">-</span>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-3 px-4 font-semibold text-sm">Arquivo</th>
+                    <th className="text-left py-3 px-4 font-semibold text-sm">Data</th>
+                    <th className="text-left py-3 px-4 font-semibold text-sm">Status</th>
+                    <th className="text-left py-3 px-4 font-semibold text-sm">Número QPROF</th>
+                    <th className="text-left py-3 px-4 font-semibold text-sm">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {files.map((file: any) => (
+                    <tr key={file.id} className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-4 text-sm">{file.filename}</td>
+                      <td className="py-3 px-4 text-sm text-gray-600">
+                        {new Date(file.createdAt).toLocaleString('pt-BR')}
+                      </td>
+                      <td className="py-3 px-4">{getStatusBadge(file.status)}</td>
+                      <td className="py-3 px-4 text-sm">{file.qprofNumber || '-'}</td>
+                      <td className="py-3 px-4">
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setLocation(`/file/${file.id}`)}
+                            className="text-xs"
+                          >
+                            Ver Detalhes
+                          </Button>
+                          {file.status === 'pending' && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleProcess(file.id)}
+                              disabled={processMutation.isPending}
+                              className="bg-[#2c5282] hover:bg-[#1e3a5f]"
+                            >
+                              Processar
+                            </Button>
                           )}
-                        </td>
-                        <td className="py-3 px-4">{getStatusBadge(file.status)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                          {file.status === 'processing' && (
+                            <span className="text-sm text-gray-500">Processando...</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {files.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-gray-500">
+                        Nenhum arquivo encontrado. Faça upload de um arquivo CNAB para começar.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
-      </div>
+      </main>
     </div>
   );
 }

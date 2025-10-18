@@ -1,4 +1,4 @@
-import { mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { mysqlEnum, mysqlTable, text, timestamp, varchar, int, serial } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -20,26 +20,34 @@ export type InsertUser = typeof users.$inferInsert;
 
 // Tabelas da automação CNAB
 export const cnabFiles = mysqlTable("cnabFiles", {
-  id: varchar("id", { length: 64 }).primaryKey(),
-  fileName: varchar("fileName", { length: 255 }).notNull(),
-  fileSize: varchar("fileSize", { length: 64 }),
+  id: int("id").primaryKey().autoincrement(),
+  filename: varchar("filename", { length: 255 }).notNull(),
+  filePath: varchar("filePath", { length: 500 }).notNull(),
   status: mysqlEnum("status", ["pending", "processing", "completed", "error"]).default("pending").notNull(),
   qprofNumber: varchar("qprofNumber", { length: 64 }),
-  uploadedAt: timestamp("uploadedAt").defaultNow(),
+  createdAt: timestamp("createdAt").defaultNow(),
   processedAt: timestamp("processedAt"),
-  userId: varchar("userId", { length: 64 }).notNull(),
 });
 
 export const cnabLogs = mysqlTable("cnabLogs", {
-  id: varchar("id", { length: 64 }).primaryKey(),
+  id: int("id").primaryKey().autoincrement(),
   fileId: varchar("fileId", { length: 64 }).notNull(),
   timestamp: timestamp("timestamp").defaultNow(),
-  level: mysqlEnum("level", ["info", "warning", "error", "success"]).notNull(),
   message: text("message").notNull(),
-  details: text("details"),
+});
+
+export const cnabScreenshots = mysqlTable("cnabScreenshots", {
+  id: int("id").primaryKey().autoincrement(),
+  fileId: int("fileId").notNull(),
+  step: int("step").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  path: varchar("path", { length: 500 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow(),
 });
 
 export type CnabFile = typeof cnabFiles.$inferSelect;
 export type InsertCnabFile = typeof cnabFiles.$inferInsert;
 export type CnabLog = typeof cnabLogs.$inferSelect;
 export type InsertCnabLog = typeof cnabLogs.$inferInsert;
+export type CnabScreenshot = typeof cnabScreenshots.$inferSelect;
+export type InsertCnabScreenshot = typeof cnabScreenshots.$inferInsert;

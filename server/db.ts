@@ -92,8 +92,9 @@ import { desc } from "drizzle-orm";
 export async function createCnabFile(file: InsertCnabFile) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(cnabFiles).values(file);
-  return file;
+  const result = await db.insert(cnabFiles).values(file);
+  // Retornar o ID gerado pelo autoincrement
+  return result[0].insertId;
 }
 
 export async function getCnabFiles(userId: string) {
@@ -102,13 +103,7 @@ export async function getCnabFiles(userId: string) {
   return db.select().from(cnabFiles).where(eq(cnabFiles.userId, userId)).orderBy(desc(cnabFiles.uploadedAt));
 }
 
-export async function updateCnabFileStatus(id: string, status: "pending" | "processing" | "completed" | "error", qprofNumber?: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const updateData: any = { status, processedAt: new Date() };
-  if (qprofNumber) updateData.qprofNumber = qprofNumber;
-  await db.update(cnabFiles).set(updateData).where(eq(cnabFiles.id, id));
-}
+
 
 export async function createCnabLog(log: InsertCnabLog) {
   const db = await getDb();
@@ -121,3 +116,59 @@ export async function getCnabLogs(fileId: string) {
   if (!db) return [];
   return db.select().from(cnabLogs).where(eq(cnabLogs.fileId, fileId)).orderBy(desc(cnabLogs.timestamp));
 }
+
+export async function listCnabFiles() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(cnabFiles).orderBy(desc(cnabFiles.createdAt));
+}
+
+export async function getCnabFile(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(cnabFiles).where(eq(cnabFiles.id, id)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function updateCnabFileStatus(id: number, status: string, qprofNumber?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const updateData: any = { status, processedAt: new Date() };
+  if (qprofNumber) updateData.qprofNumber = qprofNumber;
+  await db.update(cnabFiles).set(updateData).where(eq(cnabFiles.id, id));
+}
+
+export async function addLog(fileId: number, message: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Sanitizar e limitar tamanho da mensagem
+  let sanitized = message.replace(/\x00/g, '').substring(0, 5000);
+  
+  await db.insert(cnabLogs).values({
+    fileId: fileId.toString(),
+    message: sanitized,
+  });
+}
+
+export async function getFileLogs(fileId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(cnabLogs).where(eq(cnabLogs.fileId, fileId.toString())).orderBy(desc(cnabLogs.timestamp));
+}
+
+
+export async function addScreenshot(data: { fileId: number; step: number; name: string; path: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { cnabScreenshots } = await import("../drizzle/schema");
+  
+  await db.insert(cnabScreenshots).values({
+    fileId: data.fileId,
+    step: data.step,
+    name: data.name,
+    path: data.path,
+  });
+}
+
