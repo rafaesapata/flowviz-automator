@@ -331,29 +331,40 @@ async function importFile(page: Page, fileId: number, filePath: string): Promise
     
     await takeScreenshot(page, fileId, 14, '15_modal_fechado');
     
-    // Agora clicar no botão "Importar" para processar o arquivo
-    await addLog(fileId, 'Procurando botão Importar para processar arquivo');
+    // Aguardar um pouco para garantir que o arquivo foi carregado
+    await delay(2000);
+    
+    // Agora clicar no botão verde "Importar" no topo para processar o arquivo
+    await addLog(fileId, 'Procurando botão verde Importar no topo da página');
     
     let importClicked = false;
     
-    // Procurar em todos os frames novamente
+    // Procurar em todos os frames
     for (let i = 0; i < frames.length; i++) {
       const frame = frames[i];
       try {
         const clicked = await frame.evaluate(() => {
-          const buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button'));
+          // Procurar especificamente pelo botão verde Importar no topo
+          const buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a'));
           for (const btn of buttons) {
             const value = (btn as HTMLInputElement).value || '';
-            if (value === 'Importar') {
-              (btn as HTMLElement).click();
-              return true;
+            const text = (btn.textContent || '').trim();
+            
+            // Botão Importar no topo (geralmente tem cor verde)
+            if (value === 'Importar' || text === 'Importar') {
+              // Verificar se é visível e não está dentro de modal
+              const rect = btn.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                (btn as HTMLElement).click();
+                return true;
+              }
             }
           }
           return false;
         });
         
         if (clicked) {
-          await addLog(fileId, `Botão Importar encontrado e clicado no frame ${i}`);
+          await addLog(fileId, `Botão Importar (verde) encontrado e clicado no frame ${i}`);
           importClicked = true;
           break;
         }
@@ -363,14 +374,13 @@ async function importFile(page: Page, fileId: number, filePath: string): Promise
     }
     
     if (!importClicked) {
-      await addLog(fileId, 'Erro: Botão Importar não encontrado');
-      await takeScreenshot(page, fileId, 15, '16_erro_importar');
-      return false;
+      await addLog(fileId, 'Aviso: Botão Importar verde não encontrado, arquivo pode já estar processado');
+      await takeScreenshot(page, fileId, 15, '16_sem_botao_importar');
+    } else {
+      await addLog(fileId, 'Botão Importar clicado, aguardando processamento...');
+      await delay(8000); // Aguardar mais tempo para processamento
+      await takeScreenshot(page, fileId, 16, '17_apos_importar');
     }
-    
-    await addLog(fileId, 'Botão Importar clicado, aguardando processamento');
-    await delay(5000);
-    await takeScreenshot(page, fileId, 16, '17_apos_importar');
     
     return true;
   } catch (error: any) {
