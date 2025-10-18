@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import FileDetails from "./pages/FileDetails";
 import Login from "./pages/Login";
+import Automation from "./pages/Automation";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -14,6 +15,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path={"/"} component={Home} />
+      <Route path="/automation" component={Automation} />
       <Route path="/file/:id" component={FileDetails} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}

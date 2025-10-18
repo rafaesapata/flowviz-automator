@@ -63,6 +63,11 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    
+    // Iniciar scheduler de automação
+    import('../automation-scheduler').then(({ startScheduler }) => {
+      startScheduler();
+    }).catch(console.error);
   });
 }
 

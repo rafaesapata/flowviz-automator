@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { APP_TITLE } from "@/const";
-import { Upload, FileText, Activity, CheckCircle, XCircle, Clock, LogOut } from "lucide-react";
+import { Upload, FileText, Activity, CheckCircle, XCircle, Clock, LogOut, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -12,6 +12,7 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const [user, setUser] = useState<any>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedCompany, setSelectedCompany] = useState<string>('');
   
   const token = localStorage.getItem('auth_token');
   const meQuery = trpc.auth.me.useQuery({ token: token || undefined }, { enabled: !!token });
@@ -83,8 +84,22 @@ export default function Home() {
   };
 
   const handleProcess = (fileId: number) => {
-    processMutation.mutate({ fileId });
+    processMutation.mutate({ 
+      fileId,
+      company: selectedCompany || undefined
+    });
   };
+
+  const companies = [
+    '30E FIDC',
+    'BRASCOB',
+    'BRAVANO FIDC',
+    'FLOW CARD FUNDO DE INVESTIMENTO EM DIREITO CREDITORIO',
+    'FLOW GESTORA DE CRÉDITOS LTDA',
+    'FLOWINVEST FIDC',
+    'FLOWINVEST INCORPORADORA',
+    'FLOWINVEST SECURITIZADORA',
+  ];
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -129,6 +144,15 @@ export default function Home() {
               <p className="text-sm font-medium">{user.name}</p>
               <p className="text-xs text-blue-200">{user.email}</p>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLocation('/automation')}
+              className="bg-transparent border-white text-white hover:bg-white/10 mr-2"
+            >
+              <Calendar className="w-4 h-4 mr-2" />
+              Automação
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -193,20 +217,36 @@ export default function Home() {
             <CardDescription>Selecione um arquivo .RET para processar</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4">
-              <input
-                type="file"
-                accept=".RET,.ret"
-                onChange={handleFileSelect}
-                className="flex-1 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              />
-              <Button
-                onClick={handleUpload}
-                disabled={!selectedFile || uploadMutation.isPending}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Empresa (opcional)</label>
+                <select
+                  value={selectedCompany}
+                  onChange={(e) => setSelectedCompany(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Manter empresa atual</option>
+                  {companies.map((company) => (
+                    <option key={company} value={company}>{company}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Se não selecionada, usará a empresa atual do sistema</p>
+              </div>
+              <div className="flex gap-4">
+                <input
+                  type="file"
+                  accept=".RET,.ret"
+                  onChange={handleFileSelect}
+                  className="flex-1 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                <Button
+                  onClick={handleUpload}
+                  disabled={!selectedFile || uploadMutation.isPending}
                 className="bg-[#2c5282] hover:bg-[#1e3a5f]"
               >
                 {uploadMutation.isPending ? "Enviando..." : "Enviar"}
               </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

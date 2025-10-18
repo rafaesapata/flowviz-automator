@@ -23,6 +23,7 @@ export const cnabFiles = mysqlTable("cnabFiles", {
   id: int("id").primaryKey().autoincrement(),
   filename: varchar("filename", { length: 255 }).notNull(),
   filePath: varchar("filePath", { length: 500 }).notNull(),
+  company: varchar("company", { length: 255 }),
   status: mysqlEnum("status", ["pending", "processing", "completed", "error"]).default("pending").notNull(),
   qprofNumber: varchar("qprofNumber", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow(),
@@ -48,6 +49,38 @@ export const cnabScreenshots = mysqlTable("cnabScreenshots", {
 export type CnabFile = typeof cnabFiles.$inferSelect;
 export type InsertCnabFile = typeof cnabFiles.$inferInsert;
 export type CnabLog = typeof cnabLogs.$inferSelect;
+
+// Tabela de rotinas automáticas
+export const automationRoutines = mysqlTable("automationRoutines", {
+  id: int("id").primaryKey().autoincrement(),
+  name: varchar("name", { length: 255 }).notNull(),
+  company: varchar("company", { length: 255 }).notNull(),
+  folderPath: varchar("folderPath", { length: 500 }).notNull(),
+  frequency: mysqlEnum("frequency", ["hourly", "daily", "weekly"]).notNull(),
+  status: mysqlEnum("status", ["active", "paused", "error"]).default("active").notNull(),
+  lastRun: timestamp("lastRun"),
+  nextRun: timestamp("nextRun"),
+  createdAt: timestamp("createdAt").defaultNow(),
+});
+
+// Tabela de arquivos monitorados
+export const monitoredFiles = mysqlTable("monitoredFiles", {
+  id: int("id").primaryKey().autoincrement(),
+  routineId: int("routineId").notNull(),
+  filename: varchar("filename", { length: 255 }).notNull(),
+  filepath: varchar("filepath", { length: 500 }).notNull(),
+  fileHash: varchar("fileHash", { length: 64 }).notNull(), // MD5 hash para detectar mudanças
+  status: mysqlEnum("status", ["pending", "processing", "completed", "error"]).default("pending").notNull(),
+  qprofNumber: varchar("qprofNumber", { length: 64 }),
+  importedAt: timestamp("importedAt"),
+  error: text("error"),
+  createdAt: timestamp("createdAt").defaultNow(),
+});
+
+export type AutomationRoutine = typeof automationRoutines.$inferSelect;
+export type InsertAutomationRoutine = typeof automationRoutines.$inferInsert;
+export type MonitoredFile = typeof monitoredFiles.$inferSelect;
+export type InsertMonitoredFile = typeof monitoredFiles.$inferInsert;
 export type InsertCnabLog = typeof cnabLogs.$inferInsert;
 export type CnabScreenshot = typeof cnabScreenshots.$inferSelect;
 export type InsertCnabScreenshot = typeof cnabScreenshots.$inferInsert;

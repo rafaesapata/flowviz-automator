@@ -63,7 +63,10 @@ export const appRouter = router({
     }),
 
     processFile: publicProcedure
-      .input(z.object({ fileId: z.number() }))
+      .input(z.object({ 
+        fileId: z.number(),
+        company: z.string().optional()
+      }))
       .mutation(async ({ input }) => {
         const file = await db.getCnabFile(input.fileId);
         if (!file) {
@@ -71,10 +74,10 @@ export const appRouter = router({
         }
 
         await db.updateCnabFileStatus(input.fileId, 'processing');
-        await db.addLog(input.fileId, 'Iniciando processamento...');
+        await db.addLog(input.fileId, `Iniciando processamento${input.company ? ` na empresa: ${input.company}` : ''}...`);
 
         try {
-          const result = await processQProfFile(input.fileId, file.filename, file.filePath);
+          const result = await processQProfFile(input.fileId.toString(), file.filename, file.filePath, input.company);
           
           if (result.success) {
             await db.updateCnabFileStatus(input.fileId, 'completed', result.qprofNumber);
@@ -102,6 +105,61 @@ export const appRouter = router({
       .input(z.object({ fileId: z.number() }))
       .query(async ({ input }) => {
         return await listScreenshots(input.fileId);
+      }),
+  }),
+
+  automation: router({
+    createRoutine: publicProcedure
+      .input(z.object({
+        name: z.string(),
+        company: z.string(),
+        folderPath: z.string(),
+        frequency: z.enum(['hourly', 'daily', 'weekly']),
+      }))
+      .mutation(async ({ input }) => {
+        return await db.createAutomationRoutine(input);
+      }),
+
+    listRoutines: publicProcedure.query(async () => {
+      return await db.listAutomationRoutines();
+    }),
+
+    getRoutine: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getAutomationRoutine(input.id);
+      }),
+
+    updateRoutine: publicProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        company: z.string().optional(),
+        folderPath: z.string().optional(),
+        frequency: z.enum(['hourly', 'daily', 'weekly']).optional(),
+        status: z.enum(['active', 'paused', 'error']).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return await db.updateAutomationRoutine(input.id, input);
+      }),
+
+    deleteRoutine: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return await db.deleteAutomationRoutine(input.id);
+      }),
+
+    getRoutineFiles: publicProcedure
+      .input(z.object({ routineId: z.number() }))
+      .query(async ({ input }) => {
+        return await db.getMonitoredFiles(input.routineId);
+      }),
+
+    executeRoutine: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { executeRoutine } = await import('./automation-scheduler');
+        return await executeRoutine(input.id);
       }),
   }),
 });

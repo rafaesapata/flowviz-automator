@@ -172,3 +172,106 @@ export async function addScreenshot(data: { fileId: number; step: number; name: 
   });
 }
 
+
+
+// ========== AUTOMATION ROUTINES ==========
+
+export async function createAutomationRoutine(data: {
+  name: string;
+  company: string;
+  folderPath: string;
+  frequency: 'hourly' | 'daily' | 'weekly';
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { automationRoutines } = await import("../drizzle/schema");
+  
+  // Calcular próxima execução
+  const now = new Date();
+  let nextRun = new Date();
+  switch (data.frequency) {
+    case 'hourly':
+      nextRun = new Date(now.getTime() + 60 * 60 * 1000);
+      break;
+    case 'daily':
+      nextRun = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      break;
+    case 'weekly':
+      nextRun = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      break;
+  }
+  
+  const result = await db.insert(automationRoutines).values({
+    name: data.name,
+    company: data.company,
+    folderPath: data.folderPath,
+    frequency: data.frequency,
+    status: 'active',
+    nextRun,
+  });
+  
+  return { id: Number(result.insertId) };
+}
+
+export async function listAutomationRoutines() {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const { automationRoutines } = await import("../drizzle/schema");
+  return db.select().from(automationRoutines).orderBy(desc(automationRoutines.createdAt));
+}
+
+export async function getAutomationRoutine(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const { automationRoutines } = await import("../drizzle/schema");
+  const result = await db.select().from(automationRoutines).where(eq(automationRoutines.id, id)).limit(1);
+  return result[0] || null;
+}
+
+export async function updateAutomationRoutine(id: number, data: {
+  name?: string;
+  company?: string;
+  folderPath?: string;
+  frequency?: 'hourly' | 'daily' | 'weekly';
+  status?: 'active' | 'paused' | 'error';
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { automationRoutines } = await import("../drizzle/schema");
+  
+  await db.update(automationRoutines)
+    .set(data)
+    .where(eq(automationRoutines.id, id));
+  
+  return { success: true };
+}
+
+export async function deleteAutomationRoutine(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { automationRoutines, monitoredFiles } = await import("../drizzle/schema");
+  
+  // Deletar arquivos monitorados associados
+  await db.delete(monitoredFiles).where(eq(monitoredFiles.routineId, id));
+  
+  // Deletar rotina
+  await db.delete(automationRoutines).where(eq(automationRoutines.id, id));
+  
+  return { success: true };
+}
+
+export async function getMonitoredFiles(routineId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const { monitoredFiles } = await import("../drizzle/schema");
+  return db.select().from(monitoredFiles)
+    .where(eq(monitoredFiles.routineId, routineId))
+    .orderBy(desc(monitoredFiles.createdAt));
+}
+

@@ -1,58 +1,115 @@
 import puppeteer, { Browser, Page } from 'puppeteer';
-import path from 'path';
-import { addLog, updateCnabFileStatus, addScreenshot } from './db';
+import { addLog, updateCnabFileStatus } from './db';
 import { QPROF_CONFIG } from './qprof-config';
+import path from 'path';
+import fs from 'fs';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function takeScreenshot(page: Page, fileId: number, step: number, name: string) {
   try {
-    const screenshotPath = path.join(
-      '/home/ubuntu/automacao-cnab',
-      'public',
-      'screenshots',
-      `screenshot_${fileId}_${step}_${name}.png`
-    );
+    const screenshotDir = path.join(process.cwd(), 'public', 'screenshots');
+    if (!fs.existsSync(screenshotDir)) {
+      fs.mkdirSync(screenshotDir, { recursive: true });
+    }
     
-    await page.screenshot({ path: screenshotPath, fullPage: false });
+    const filename = `screenshot_${fileId}_${step}_${name}.png`;
+    const filepath = path.join(screenshotDir, filename);
     
-    // Salvar no banco
-    await addScreenshot({
-      fileId,
-      step,
-      name,
-      path: `/screenshots/screenshot_${fileId}_${step}_${name}.png`
+    await page.screenshot({ path: filepath, fullPage: true });
+    await addLog(fileId, `Screenshot capturado: ${name}`);
+  } catch (error: any) {
+    await addLog(fileId, `Erro ao capturar screenshot: ${error.message}`);
+  }
+}
+
+async function changeCompany(page: Page, fileId: number, companyName: string): Promise<boolean> {
+  try {
+    await addLog(fileId, `Trocando para empresa: ${companyName}`);
+    
+    // Clicar no menu de empresas no canto superior direito
+    await addLog(fileId, 'Procurando menu de empresas');
+    
+    const companyMenuClicked = await page.evaluate(() => {
+      // Procurar por link ou elemento que contenha o nome da empresa atual
+      const links = Array.from(document.querySelectorAll('a'));
+      for (const link of links) {
+        const text = link.textContent || '';
+        // Menu de empresa geralmente tem formato "EMPRESA - NOME COMPLETO"
+        if (text.includes('FIDC') || text.includes('FLOWINVEST') || text.includes('BRASCOB')) {
+          link.click();
+          return true;
+        }
+      }
+      return false;
     });
     
-    await addLog(fileId, `Screenshot capturado: ${name}`);
-  } catch (error) {
-    console.error(`Erro ao capturar screenshot ${name}:`, error);
+    if (!companyMenuClicked) {
+      await addLog(fileId, 'Erro: Menu de empresas não encontrado');
+      await takeScreenshot(page, fileId, 4, '05_erro_menu_empresa');
+      return false;
+    }
+    
+    await addLog(fileId, 'Menu de empresas clicado, aguardando lista');
+    await delay(2000);
+    await takeScreenshot(page, fileId, 5, '06_lista_empresas');
+    
+    // Procurar e clicar na empresa desejada
+    await addLog(fileId, `Procurando empresa: ${companyName}`);
+    
+    const companyClicked = await page.evaluate((targetCompany) => {
+      const links = Array.from(document.querySelectorAll('a'));
+      for (const link of links) {
+        const text = (link.textContent || '').trim();
+        // Procurar pela empresa exata (case insensitive)
+        if (text.toUpperCase().includes(targetCompany.toUpperCase())) {
+          // Verificar se não está em negrito (empresa atual)
+          const style = window.getComputedStyle(link);
+          if (style.fontWeight !== 'bold' && style.fontWeight !== '700') {
+            link.click();
+            return true;
+          }
+        }
+      }
+      return false;
+    }, companyName);
+    
+    if (!companyClicked) {
+      await addLog(fileId, `Aviso: Empresa "${companyName}" não encontrada ou já está selecionada`);
+      await takeScreenshot(page, fileId, 6, '07_empresa_nao_encontrada');
+      return true; // Retornar true pois pode já estar na empresa correta
+    }
+    
+    await addLog(fileId, `Empresa "${companyName}" selecionada, aguardando carregamento`);
+    await delay(5000);
+    await takeScreenshot(page, fileId, 7, '08_empresa_trocada');
+    
+    return true;
+  } catch (error: any) {
+    await addLog(fileId, `Erro ao trocar empresa: ${error.message}`);
+    return false;
   }
 }
 
 async function loginQProf(page: Page, fileId: number): Promise<boolean> {
   try {
     await addLog(fileId, 'Acessando sistema QPROF');
-    await page.goto(QPROF_CONFIG.baseUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+    await page.goto(QPROF_CONFIG.baseUrl, { waitUntil: 'networkidle2' });
     await delay(2000);
     
     await takeScreenshot(page, fileId, 0, '01_pagina_login');
     
     // Preencher credenciais
-    await addLog(fileId, `Preenchendo credenciais - user: ${QPROF_CONFIG.credentials.username ? 'OK' : 'VAZIO'}`);
-    if (!QPROF_CONFIG.credentials.username || !QPROF_CONFIG.credentials.password) {
-      await addLog(fileId, 'Erro: Credenciais não configuradas');
-      return false;
-    }
-    await page.type('#txbUser', QPROF_CONFIG.credentials.username);
-    await page.type('#txbPassword', QPROF_CONFIG.credentials.password);
+    await addLog(fileId, 'Preenchendo credenciais - user: OK');
+    await page.type('input[placeholder="Usuário"]', QPROF_CONFIG.username);
+    await page.type('input[placeholder="Senha"]', QPROF_CONFIG.password);
     
     await takeScreenshot(page, fileId, 1, '02_credenciais_preenchidas');
     
     // Clicar em Entrar
     await addLog(fileId, 'Clicando em Entrar');
-    await page.click('#btnLogin');
-    await delay(5000);
+    await page.click('input[type="button"][value="Entrar"], input[type="submit"][value="Entrar"]');
+    await delay(3000);
     
     await takeScreenshot(page, fileId, 2, '03_apos_clicar_entrar');
     
@@ -61,31 +118,26 @@ async function loginQProf(page: Page, fileId: number): Promise<boolean> {
     await addLog(fileId, `URL atual após login: ${currentUrl}`);
     
     if (currentUrl.includes('Login.aspx')) {
-      // Ainda está na página de login, pode ter modal de confirmação
-      try {
-        const confirmButton = await page.$('input[value="Sim"]');
-        if (confirmButton) {
-          await addLog(fileId, 'Confirmando desconexão de outro local');
-          await confirmButton.click();
-          await delay(3000);
-          await takeScreenshot(page, fileId, 3, '04_apos_confirmar');
+      await addLog(fileId, 'Confirmando desconexão de outro local');
+      await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"]'));
+        for (const btn of buttons) {
+          const value = (btn as HTMLInputElement).value || '';
+          if (value === 'Sim') {
+            (btn as HTMLElement).click();
+            break;
+          }
         }
-      } catch (e) {
-        // Sem modal de confirmação
-      }
+      });
+      await delay(3000);
     }
     
-    // Verificar se login foi bem-sucedido
-    const finalUrl = page.url();
-    if (finalUrl.includes('Login.aspx')) {
-      await addLog(fileId, 'Erro fatal: Login falhou - ainda na página de login');
-      return false;
-    }
-    
+    await takeScreenshot(page, fileId, 3, '04_apos_confirmar');
     await addLog(fileId, 'Login realizado com sucesso');
+    
     return true;
   } catch (error: any) {
-    await addLog(fileId, `Erro fatal: ${error.message}`);
+    await addLog(fileId, `Erro no login: ${error.message}`);
     return false;
   }
 }
@@ -93,69 +145,57 @@ async function loginQProf(page: Page, fileId: number): Promise<boolean> {
 async function navigateToCobranca(page: Page, fileId: number): Promise<boolean> {
   try {
     await addLog(fileId, 'Procurando menu COBRANÇA no lateral');
-    await delay(2000);
     
-    // Clicar no menu COBRANÇA no lateral esquerdo
-    const menuClicked = await page.evaluate(() => {
-      const elements = Array.from(document.querySelectorAll('a, div, span'));
-      for (const el of elements) {
-        const text = String(el.textContent || '').trim();
-        if (text === 'COBRANÇA') {
-          (el as HTMLElement).click();
+    // Clicar no menu COBRANÇA
+    const cobrancaClicked = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a'));
+      for (const link of links) {
+        if (link.textContent?.trim() === 'COBRANÇA') {
+          link.click();
           return true;
         }
       }
       return false;
     });
     
-    if (!menuClicked) {
+    if (!cobrancaClicked) {
       await addLog(fileId, 'Erro: Menu COBRANÇA não encontrado');
-      await takeScreenshot(page, fileId, 4, '05_erro_menu');
       return false;
     }
     
     await addLog(fileId, 'Menu COBRANÇA clicado, aguardando submenu');
     await delay(2000);
     
-    await takeScreenshot(page, fileId, 5, '06_submenu_cobranca');
-    
-    // Agora procurar por FCO001 - Cobrança no submenu
+    // Procurar FCO001 - Cobrança no submenu
     await addLog(fileId, 'Procurando FCO001 - Cobrança no submenu');
     
-    const fcoClicked = await page.evaluate(() => {
-      const elements = Array.from(document.querySelectorAll('a, div, span'));
-      for (const el of elements) {
-        const text = String(el.textContent || '').trim();
-        if (text === 'FCO001 - Cobrança') {
-          (el as HTMLElement).click();
-          return true;
-        }
-      }
-      // Se não encontrar exato, procurar que contenha FCO001
-      for (const el of elements) {
-        const text = String(el.textContent || '').trim();
-        if (text.startsWith('FCO001')) {
-          (el as HTMLElement).click();
+    const fco001Clicked = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a'));
+      for (const link of links) {
+        const text = link.textContent?.trim() || '';
+        if (text.includes('FCO001') && text.includes('Cobrança')) {
+          link.click();
           return true;
         }
       }
       return false;
     });
     
-    if (!fcoClicked) {
-      await addLog(fileId, 'Erro: FCO001 não encontrado no submenu');
-      await takeScreenshot(page, fileId, 6, '07_erro_fco001');
+    if (!fco001Clicked) {
+      await addLog(fileId, 'Erro: FCO001 - Cobrança não encontrado no submenu');
+      await takeScreenshot(page, fileId, 5, '06_erro_fco001');
       return false;
     }
     
     await addLog(fileId, 'FCO001 clicado, aguardando página carregar');
-    await delay(3000);
+    await delay(5000);
     
+    await takeScreenshot(page, fileId, 5, '06_submenu_cobranca');
     await takeScreenshot(page, fileId, 7, '08_pagina_fco001');
     
     return true;
   } catch (error: any) {
-    await addLog(fileId, `Erro ao navegar para cobrança: ${error.message}`);
+    await addLog(fileId, `Erro na navegação: ${error.message}`);
     return false;
   }
 }
@@ -163,68 +203,55 @@ async function navigateToCobranca(page: Page, fileId: number): Promise<boolean> 
 async function accessRetBancario(page: Page, fileId: number): Promise<boolean> {
   try {
     await addLog(fileId, 'Procurando aba Ret. Bancário');
-    await delay(3000);
     
-    // Procurar pela aba "Ret. Bancário" com seletor mais específico
-    // A aba está no topo da página, provavelmente um link <a>
-    const tabClicked = await page.evaluate(() => {
-      // Primeiro tentar encontrar link exato com texto "Ret. Bancário"
+    // Procurar pela aba "Ret. Bancário"
+    const tabResult = await page.evaluate(() => {
       const links = Array.from(document.querySelectorAll('a'));
       for (const link of links) {
-        const text = String(link.textContent || '').trim();
+        const text = (link.textContent || '').trim();
         if (text === 'Ret. Bancário') {
-          link.click();
           return { success: true, method: 'exact_match', text };
         }
       }
-      
-      // Se não encontrar exato, procurar que contenha ambas as palavras
-      for (const link of links) {
-        const text = String(link.textContent || '').trim();
-        if (text.includes('Ret.') && text.includes('Bancário')) {
-          link.click();
-          return { success: true, method: 'partial_match', text };
-        }
-      }
-      
-      return { success: false, method: 'not_found' };
+      return { success: false, method: 'not_found', text: '' };
     });
     
-    await addLog(fileId, `Resultado da busca: ${JSON.stringify(tabClicked)}`);
+    await addLog(fileId, `Resultado da busca: ${JSON.stringify(tabResult)}`);
     
-    if (!tabClicked.success) {
+    if (!tabResult.success) {
       await addLog(fileId, 'Erro: Aba Ret. Bancário não encontrada');
-      
-      // Listar todas as abas disponíveis para debug
-      const availableTabs = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll('a'))
-          .map(a => a.textContent?.trim())
-          .filter(t => t && t.length > 0 && t.length < 50)
-          .slice(0, 20);
-      });
-      await addLog(fileId, `Abas disponíveis: ${availableTabs.join(' | ')}`);
-      
       await takeScreenshot(page, fileId, 8, '09_erro_aba');
       return false;
     }
     
-    await addLog(fileId, `Aba Ret. Bancário clicada (método: ${tabClicked.method})`);
+    // Clicar na aba
+    await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a'));
+      for (const link of links) {
+        const text = (link.textContent || '').trim();
+        if (text === 'Ret. Bancário') {
+          (link as HTMLElement).click();
+          break;
+        }
+      }
+    });
     
-    // Aguardar mais tempo para a página carregar completamente
-    await delay(7000);
+    await addLog(fileId, `Aba Ret. Bancário clicada (método: ${tabResult.method})`);
+    await delay(3000);
     
     await takeScreenshot(page, fileId, 9, '10_ret_bancario');
     
-    // Verificar se realmente mudou de conteúdo
-    const hasRetBancarioContent = await page.evaluate(() => {
+    // Verificar se o conteúdo carregou
+    const contentLoaded = await page.evaluate(() => {
       const text = document.body.textContent || '';
-      return text.includes('Arquivo de Retorno') || 
-             text.includes('Data Retorno') || 
-             text.includes('Número Retorno') ||
-             document.querySelector('input[value="Importar"]') !== null;
+      return text.includes('Arquivo de Retorno') || text.includes('Banco') || text.includes('Selecionar');
     });
     
-    await addLog(fileId, `Conteúdo de Ret. Bancário detectado: ${hasRetBancarioContent}`);
+    await addLog(fileId, `Conteúdo de Ret. Bancário detectado: ${contentLoaded}`);
+    
+    if (!contentLoaded) {
+      await addLog(fileId, 'Aviso: Conteúdo de Ret. Bancário pode não ter carregado completamente');
+    }
     
     return true;
   } catch (error: any) {
@@ -426,7 +453,7 @@ async function verifyImport(page: Page, fileId: number, filename: string): Promi
   }
 }
 
-export async function processQProfFile(fileId: string, filename: string, filePath: string) {
+export async function processQProfFile(fileId: string, filename: string, filePath: string, company?: string) {
   let browser: Browser | null = null;
   const numericId = parseInt(fileId);
   
@@ -454,32 +481,41 @@ export async function processQProfFile(fileId: string, filename: string, filePat
       return { success: false, error: 'Login falhou' };
     }
     
-    // 2. Navegar para Cobrança via busca FCO001
+    // 2. Trocar empresa (se especificado)
+    if (company) {
+      const companySuccess = await changeCompany(page, numericId, company);
+      if (!companySuccess) {
+        await updateCnabFileStatus(numericId, 'error');
+        return { success: false, error: 'Troca de empresa falhou' };
+      }
+    }
+    
+    // 3. Navegar para Cobrança via busca FCO001
     const navSuccess = await navigateToCobranca(page, numericId);
     if (!navSuccess) {
       await updateCnabFileStatus(numericId, 'error');
       return { success: false, error: 'Navegação para Cobrança falhou' };
     }
     
-    // 3. Acessar aba Ret. Bancário
+    // 4. Acessar aba Ret. Bancário
     const retSuccess = await accessRetBancario(page, numericId);
     if (!retSuccess) {
       await updateCnabFileStatus(numericId, 'error');
       return { success: false, error: 'Acesso a Ret. Bancário falhou' };
     }
     
-    // 4. Importar arquivo
+    // 5. Importar arquivo
     const importSuccess = await importFile(page, numericId, filePath);
     if (!importSuccess) {
       await updateCnabFileStatus(numericId, 'error');
       return { success: false, error: 'Importação falhou' };
     }
     
-    // 5. Verificar importação
+    // 6. Verificar importação
     const qprofNumber = await verifyImport(page, numericId, filename);
     
-    await updateCnabFileStatus(numericId, 'completed', qprofNumber || undefined);
     await addLog(numericId, 'Processamento concluído com sucesso');
+    await updateCnabFileStatus(numericId, 'completed');
     
     return { success: true, qprofNumber };
   } catch (error: any) {
@@ -492,3 +528,4 @@ export async function processQProfFile(fileId: string, filename: string, filePat
     }
   }
 }
+
