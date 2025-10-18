@@ -2,17 +2,21 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { logger } from "./_core/logger";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+let _db: ReturnType<typeof drizzle> | undefined = undefined;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  if (!_db) {
+    if (!process.env.DATABASE_URL) {
+      logger.fatal("DATABASE_URL não está configurada nas variáveis de ambiente.");
+      throw new Error("DATABASE_URL não está configurada.");
+    }
     try {
       _db = drizzle(process.env.DATABASE_URL);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
+      logger.fatal({ error }, "[Database] Falha ao inicializar a conexão com o banco de dados.");
+      throw new Error("Falha na inicialização do banco de dados.");
     }
   }
   return _db;
@@ -24,10 +28,10 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
+  // if (!db) { // Não é mais necessário, getDb() lança erro se não houver conexão
+  //   logger.warn("[Database] Cannot upsert user: database not available");
+  //   return;
+  // }
 
   try {
     const values: InsertUser = {
@@ -68,17 +72,17 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       set: updateSet,
     });
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
+    logger.error({ error }, "[Database] Failed to upsert user:");
+    throw new Error(`Falha ao fazer upsert do usuário: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 export async function getUser(id: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
+  // if (!db) { // Não é mais necessário, getDb() lança erro se não houver conexão
+  //   logger.warn("[Database] Cannot get user: database not available");
+  //   return undefined;
+  // }
 
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
 
@@ -91,7 +95,7 @@ import { desc } from "drizzle-orm";
 
 export async function createCnabFile(file: InsertCnabFile) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  // if (!db) throw new Error("Database not available"); // Não é mais necessário
   const result = await db.insert(cnabFiles).values(file);
   // Retornar o ID gerado pelo autoincrement
   return result[0].insertId;
@@ -99,7 +103,7 @@ export async function createCnabFile(file: InsertCnabFile) {
 
 export async function getCnabFiles(userId: string) {
   const db = await getDb();
-  if (!db) return [];
+  // if (!db) return []; // Não é mais necessário
   return db.select().from(cnabFiles).where(eq(cnabFiles.userId, userId)).orderBy(desc(cnabFiles.uploadedAt));
 }
 
@@ -107,32 +111,32 @@ export async function getCnabFiles(userId: string) {
 
 export async function createCnabLog(log: InsertCnabLog) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  // if (!db) throw new Error("Database not available"); // Não é mais necessário
   await db.insert(cnabLogs).values(log);
 }
 
 export async function getCnabLogs(fileId: string) {
   const db = await getDb();
-  if (!db) return [];
+  // if (!db) return []; // Não é mais necessário
   return db.select().from(cnabLogs).where(eq(cnabLogs.fileId, fileId)).orderBy(desc(cnabLogs.timestamp));
 }
 
 export async function listCnabFiles() {
   const db = await getDb();
-  if (!db) return [];
+  // if (!db) return []; // Não é mais necessário
   return db.select().from(cnabFiles).orderBy(desc(cnabFiles.createdAt));
 }
 
 export async function getCnabFile(id: number) {
   const db = await getDb();
-  if (!db) return null;
+  // if (!db) return null; // Não é mais necessário
   const result = await db.select().from(cnabFiles).where(eq(cnabFiles.id, id)).limit(1);
   return result.length > 0 ? result[0] : null;
 }
 
 export async function updateCnabFileStatus(id: number, status: string, qprofNumber?: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  // if (!db) throw new Error("Database not available"); // Não é mais necessário
   const updateData: any = { status, processedAt: new Date() };
   if (qprofNumber) updateData.qprofNumber = qprofNumber;
   await db.update(cnabFiles).set(updateData).where(eq(cnabFiles.id, id));
@@ -140,7 +144,7 @@ export async function updateCnabFileStatus(id: number, status: string, qprofNumb
 
 export async function addLog(fileId: number, message: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  // if (!db) throw new Error("Database not available"); // Não é mais necessário
   
   // Sanitizar e limitar tamanho da mensagem
   let sanitized = message.replace(/\x00/g, '').substring(0, 5000);
@@ -153,14 +157,14 @@ export async function addLog(fileId: number, message: string) {
 
 export async function getFileLogs(fileId: number) {
   const db = await getDb();
-  if (!db) return [];
+  // if (!db) return []; // Não é mais necessário
   return db.select().from(cnabLogs).where(eq(cnabLogs.fileId, fileId.toString())).orderBy(desc(cnabLogs.timestamp));
 }
 
 
 export async function addScreenshot(data: { fileId: number; step: number; name: string; path: string }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  // if (!db) throw new Error("Database not available"); // Não é mais necessário
   
   const { cnabScreenshots } = await import("../drizzle/schema");
   
@@ -183,7 +187,7 @@ export async function createAutomationRoutine(data: {
   frequency: 'hourly' | 'daily' | 'weekly';
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  // if (!db) throw new Error("Database not available"); // Não é mais necessário
   
   const { automationRoutines } = await import("../drizzle/schema");
   
@@ -211,12 +215,12 @@ export async function createAutomationRoutine(data: {
     nextRun,
   });
   
-  return { id: Number(result.insertId) };
+  return { id: Number(result[0].insertId) };
 }
 
 export async function listAutomationRoutines() {
   const db = await getDb();
-  if (!db) return [];
+  // if (!db) return []; // Não é mais necessário
   
   const { automationRoutines } = await import("../drizzle/schema");
   return db.select().from(automationRoutines).orderBy(desc(automationRoutines.createdAt));
@@ -224,7 +228,7 @@ export async function listAutomationRoutines() {
 
 export async function getAutomationRoutine(id: number) {
   const db = await getDb();
-  if (!db) return null;
+  // if (!db) return null; // Não é mais necessário
   
   const { automationRoutines } = await import("../drizzle/schema");
   const result = await db.select().from(automationRoutines).where(eq(automationRoutines.id, id)).limit(1);
@@ -239,7 +243,7 @@ export async function updateAutomationRoutine(id: number, data: {
   status?: 'active' | 'paused' | 'error';
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  // if (!db) throw new Error("Database not available"); // Não é mais necessário
   
   const { automationRoutines } = await import("../drizzle/schema");
   
@@ -252,7 +256,7 @@ export async function updateAutomationRoutine(id: number, data: {
 
 export async function deleteAutomationRoutine(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  // if (!db) throw new Error("Database not available"); // Não é mais necessário
   
   const { automationRoutines, monitoredFiles } = await import("../drizzle/schema");
   
@@ -267,7 +271,7 @@ export async function deleteAutomationRoutine(id: number) {
 
 export async function getMonitoredFiles(routineId: number) {
   const db = await getDb();
-  if (!db) return [];
+  // if (!db) return []; // Não é mais necessário
   
   const { monitoredFiles } = await import("../drizzle/schema");
   return db.select().from(monitoredFiles)

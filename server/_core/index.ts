@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { logger } from "./logger";
+import { getDb } from "../db";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -29,6 +31,20 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Testar conexão com o banco de dados proativamente
+  logger.info("Testando conexão com o banco de dados...");
+  try {
+    const db = await getDb();
+    if (!db) {
+      throw new Error("Conexão com o banco de dados não estabelecida.");
+    }
+    await db.execute("SELECT 1"); // Executar uma query simples para testar a conexão
+    logger.info("Conexão com o banco de dados bem-sucedida.");
+  } catch (error) {
+    logger.error({ error }, "Erro ao conectar ao banco de dados");
+    process.exit(1); // Encerrar o processo se a conexão falhar
+  }
+
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
@@ -58,17 +74,18 @@ async function startServer() {
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+    logger.warn(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
   server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+    logger.info(`Server running on http://localhost:${port}/`);
     
     // Iniciar scheduler de automação
-    import('../automation-scheduler').then(({ startScheduler }) => {
+    // Importar dinamicamente para evitar problemas de dependência circular e garantir que o DB esteja pronto
+    import("../automation-scheduler").then(({ startScheduler }) => {
       startScheduler();
-    }).catch(console.error);
+        }).catch((error) => logger.error({ error }, "Erro ao iniciar o scheduler de automação"));
   });
 }
 
-startServer().catch(console.error);
+startServer().catch((error) => logger.fatal({ error }, "Erro fatal ao iniciar o servidor"));

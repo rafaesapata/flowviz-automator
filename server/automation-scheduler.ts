@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { db } from './db';
+import { logger } from './_core/logger';
+import { getDb } from './db';
 import { automationRoutines, monitoredFiles } from '../drizzle/schema';
 import { eq, and } from 'drizzle-orm';
 import { processQProfFile } from './qprof-automation';
@@ -29,7 +30,7 @@ function calculateNextRun(frequency: 'hourly' | 'daily' | 'weekly'): Date {
 function listRetFiles(folderPath: string): string[] {
   try {
     if (!fs.existsSync(folderPath)) {
-      console.log(`Pasta não existe: ${folderPath}`);
+      logger.warn(`Pasta não existe: ${folderPath}`);
       return [];
     }
     
@@ -38,14 +39,14 @@ function listRetFiles(folderPath: string): string[] {
       .filter(f => f.toUpperCase().endsWith('.RET'))
       .map(f => path.join(folderPath, f));
   } catch (error: any) {
-    console.error(`Erro ao listar arquivos: ${error.message}`);
+    logger.error({ error }, `Erro ao listar arquivos: ${error.message}`);
     return [];
   }
 }
 
 // Verificar se arquivo já foi importado
 async function isFileImported(routineId: number, filepath: string, fileHash: string): Promise<boolean> {
-  const existing = await db
+  const existing = await (await getDb())
     .select()
     .from(monitoredFiles)
     .where(
@@ -68,7 +69,7 @@ async function registerMonitoredFile(
   filepath: string,
   fileHash: string
 ): Promise<number> {
-  const result = await db.insert(monitoredFiles).values({
+  const result = await (await getDb()).insert(monitoredFiles).values({
     routineId,
     filename,
     filepath,
@@ -86,7 +87,7 @@ async function updateMonitoredFileStatus(
   qprofNumber?: string | null,
   error?: string
 ) {
-  await db.update(monitoredFiles)
+  await (await getDb()).update(monitoredFiles)
     .set({
       status,
       qprofNumber: qprofNumber || undefined,
@@ -102,37 +103,37 @@ export async function executeRoutine(routineId: number): Promise<{
   filesProcessed: number;
   errors: number;
 }> {
-  console.log(`[Rotina ${routineId}] Iniciando execução...`);
+  logger.info(`[Rotina ${routineId}] Iniciando execução...`);
   
   try {
     // Buscar configuração da rotina
-    const routine = await db
+    const routine = await (await getDb())
       .select()
       .from(automationRoutines)
       .where(eq(automationRoutines.id, routineId))
       .limit(1);
     
     if (routine.length === 0) {
-      console.log(`[Rotina ${routineId}] Rotina não encontrada`);
+      logger.warn(`[Rotina ${routineId}] Rotina não encontrada`);
       return { success: false, filesProcessed: 0, errors: 1 };
     }
     
     const config = routine[0];
     
     if (config.status !== 'active') {
-      console.log(`[Rotina ${routineId}] Rotina não está ativa (status: ${config.status})`);
+      logger.warn(`[Rotina ${routineId}] Rotina não está ativa (status: ${config.status})`);
       return { success: false, filesProcessed: 0, errors: 0 };
     }
     
-    console.log(`[Rotina ${routineId}] Configuração:`);
-    console.log(`  Nome: ${config.name}`);
-    console.log(`  Empresa: ${config.company}`);
-    console.log(`  Pasta: ${config.folderPath}`);
-    console.log(`  Frequência: ${config.frequency}`);
+    logger.info(`[Rotina ${routineId}] Configuração:`);
+    logger.info(`  Nome: ${config.name}`);
+    logger.info(`  Empresa: ${config.company}`);
+    logger.info(`  Pasta: ${config.folderPath}`);
+    logger.info(`  Frequência: ${config.frequency}`);
     
     // Listar arquivos da pasta
     const files = listRetFiles(config.folderPath);
-    console.log(`[Rotina ${routineId}] Encontrados ${files.length} arquivos .RET`);
+    logger.info(`[Rotina ${routineId}] Encontrados ${files.length} arquivos .RET`);
     
     let filesProcessed = 0;
     let errors = 0;
@@ -142,17 +143,17 @@ export async function executeRoutine(routineId: number): Promise<{
       const filename = path.basename(filepath);
       const fileHash = calculateFileHash(filepath);
       
-      console.log(`[Rotina ${routineId}] Verificando arquivo: ${filename}`);
+      logger.info(`[Rotina ${routineId}] Verificando arquivo: ${filename}`);
       
       // Verificar se já foi importado
       const alreadyImported = await isFileImported(routineId, filepath, fileHash);
       
       if (alreadyImported) {
-        console.log(`[Rotina ${routineId}] Arquivo já importado: ${filename}`);
+        logger.info(`[Rotina ${routineId}] Arquivo já importado: ${filename}`);
         continue;
       }
       
-      console.log(`[Rotina ${routineId}] Novo arquivo detectado: ${filename}`);
+      logger.info(`[Rotina ${routineId}] Novo arquivo detectado: ${filename}`);
       
       // Registrar arquivo
       const monitoredId = await registerMonitoredFile(routineId, filename, filepath, fileHash);
@@ -161,7 +162,7 @@ export async function executeRoutine(routineId: number): Promise<{
       await updateMonitoredFileStatus(monitoredId, 'processing');
       
       try {
-        console.log(`[Rotina ${routineId}] Processando arquivo: ${filename}`);
+        logger.info(`[Rotina ${routineId}] Processando arquivo: ${filename}`);
         
         // Processar no QPROF
         const result = await processQProfFile(
@@ -172,16 +173,16 @@ export async function executeRoutine(routineId: number): Promise<{
         );
         
         if (result.success) {
-          console.log(`[Rotina ${routineId}] ✅ Arquivo processado com sucesso: ${filename}`);
+          logger.info(`[Rotina ${routineId}] ✅ Arquivo processado com sucesso: ${filename}`);
           await updateMonitoredFileStatus(monitoredId, 'completed', result.qprofNumber);
           filesProcessed++;
         } else {
-          console.log(`[Rotina ${routineId}] ❌ Erro ao processar: ${filename} - ${result.error}`);
+          logger.error(`[Rotina ${routineId}] ❌ Erro ao processar: ${filename} - ${result.error}`);
           await updateMonitoredFileStatus(monitoredId, 'error', null, result.error);
           errors++;
         }
       } catch (error: any) {
-        console.log(`[Rotina ${routineId}] ❌ Exceção ao processar: ${filename} - ${error.message}`);
+        logger.error({ error }, `[Rotina ${routineId}] ❌ Exceção ao processar: ${filename} - ${error.message}`);
         await updateMonitoredFileStatus(monitoredId, 'error', null, error.message);
         errors++;
       }
@@ -189,7 +190,7 @@ export async function executeRoutine(routineId: number): Promise<{
     
     // Atualizar rotina
     const nextRun = calculateNextRun(config.frequency);
-    await db.update(automationRoutines)
+    await (await getDb()).update(automationRoutines)
       .set({
         lastRun: new Date(),
         nextRun,
@@ -197,17 +198,17 @@ export async function executeRoutine(routineId: number): Promise<{
       })
       .where(eq(automationRoutines.id, routineId));
     
-    console.log(`[Rotina ${routineId}] Execução concluída:`);
-    console.log(`  Arquivos processados: ${filesProcessed}`);
-    console.log(`  Erros: ${errors}`);
-    console.log(`  Próxima execução: ${nextRun.toLocaleString('pt-BR')}`);
+    logger.info(`[Rotina ${routineId}] Execução concluída:`);
+    logger.info(`  Arquivos processados: ${filesProcessed}`);
+    logger.info(`  Erros: ${errors}`);
+    logger.info(`  Próxima execução: ${nextRun.toLocaleString('pt-BR')}`);
     
     return { success: true, filesProcessed, errors };
   } catch (error: any) {
-    console.error(`[Rotina ${routineId}] Erro fatal: ${error.message}`);
+    logger.fatal({ error }, `[Rotina ${routineId}] Erro fatal: ${error.message}`);
     
     // Marcar rotina como erro
-    await db.update(automationRoutines)
+    await (await getDb()).update(automationRoutines)
       .set({ status: 'error' })
       .where(eq(automationRoutines.id, routineId));
     
@@ -217,26 +218,26 @@ export async function executeRoutine(routineId: number): Promise<{
 
 // Verificar e executar rotinas pendentes
 export async function checkAndExecuteRoutines() {
-  console.log('[Scheduler] Verificando rotinas pendentes...');
+  logger.info('[Scheduler] Verificando rotinas pendentes...');
   
   const now = new Date();
   
   // Buscar rotinas ativas que devem ser executadas
-  const routines = await db
+  const routines = await (await getDb())
     .select()
     .from(automationRoutines)
     .where(eq(automationRoutines.status, 'active'));
   
-  console.log(`[Scheduler] Encontradas ${routines.length} rotinas ativas`);
+  logger.info(`[Scheduler] Encontradas ${routines.length} rotinas ativas`);
   
   for (const routine of routines) {
     // Verificar se deve executar
     if (!routine.nextRun || routine.nextRun <= now) {
-      console.log(`[Scheduler] Executando rotina: ${routine.name} (ID: ${routine.id})`);
+      logger.info(`[Scheduler] Executando rotina: ${routine.name} (ID: ${routine.id})`);
       await executeRoutine(routine.id);
     } else {
       const timeUntilNext = Math.round((routine.nextRun.getTime() - now.getTime()) / 1000 / 60);
-      console.log(`[Scheduler] Rotina "${routine.name}" será executada em ${timeUntilNext} minutos`);
+      logger.info(`[Scheduler] Rotina "${routine.name}" será executada em ${timeUntilNext} minutos`);
     }
   }
 }
@@ -246,11 +247,11 @@ let schedulerInterval: NodeJS.Timeout | null = null;
 
 export function startScheduler() {
   if (schedulerInterval) {
-    console.log('[Scheduler] Scheduler já está rodando');
+    logger.warn('[Scheduler] Scheduler já está rodando');
     return;
   }
   
-  console.log('[Scheduler] Iniciando scheduler...');
+  logger.info('[Scheduler] Iniciando scheduler...');
   
   // Executar imediatamente
   checkAndExecuteRoutines();
@@ -260,14 +261,14 @@ export function startScheduler() {
     checkAndExecuteRoutines();
   }, 5 * 60 * 1000);
   
-  console.log('[Scheduler] Scheduler iniciado (verificação a cada 5 minutos)');
+  logger.info('[Scheduler] Scheduler iniciado (verificação a cada 5 minutos)');
 }
 
 export function stopScheduler() {
   if (schedulerInterval) {
     clearInterval(schedulerInterval);
     schedulerInterval = null;
-    console.log('[Scheduler] Scheduler parado');
+    logger.info('[Scheduler] Scheduler parado');
   }
 }
 
