@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { calculateNextRun } from './automation-scheduler';
 import { logger } from "./_core/logger";
 
 let _db: ReturnType<typeof drizzle> | undefined = undefined;
@@ -28,10 +29,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 
   const db = await getDb();
-  // if (!db) { // Não é mais necessário, getDb() lança erro se não houver conexão
-  //   logger.warn("[Database] Cannot upsert user: database not available");
-  //   return;
-  // }
+
 
   try {
     const values: InsertUser = {
@@ -79,10 +77,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
 export async function getUser(id: string) {
   const db = await getDb();
-  // if (!db) { // Não é mais necessário, getDb() lança erro se não houver conexão
-  //   logger.warn("[Database] Cannot get user: database not available");
-  //   return undefined;
-  // }
+
 
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
 
@@ -95,7 +90,7 @@ import { desc } from "drizzle-orm";
 
 export async function createCnabFile(file: InsertCnabFile) {
   const db = await getDb();
-  // if (!db) throw new Error("Database not available"); // Não é mais necessário
+
   const result = await db.insert(cnabFiles).values(file);
   // Retornar o ID gerado pelo autoincrement
   return result[0].insertId;
@@ -103,7 +98,7 @@ export async function createCnabFile(file: InsertCnabFile) {
 
 export async function getCnabFiles(userId: string) {
   const db = await getDb();
-  // if (!db) return []; // Não é mais necessário
+
   return db.select().from(cnabFiles).where(eq(cnabFiles.userId, userId)).orderBy(desc(cnabFiles.uploadedAt));
 }
 
@@ -111,32 +106,32 @@ export async function getCnabFiles(userId: string) {
 
 export async function createCnabLog(log: InsertCnabLog) {
   const db = await getDb();
-  // if (!db) throw new Error("Database not available"); // Não é mais necessário
+
   await db.insert(cnabLogs).values(log);
 }
 
 export async function getCnabLogs(fileId: string) {
   const db = await getDb();
-  // if (!db) return []; // Não é mais necessário
+
   return db.select().from(cnabLogs).where(eq(cnabLogs.fileId, fileId)).orderBy(desc(cnabLogs.timestamp));
 }
 
 export async function listCnabFiles() {
   const db = await getDb();
-  // if (!db) return []; // Não é mais necessário
+
   return db.select().from(cnabFiles).orderBy(desc(cnabFiles.createdAt));
 }
 
 export async function getCnabFile(id: number) {
   const db = await getDb();
-  // if (!db) return null; // Não é mais necessário
+
   const result = await db.select().from(cnabFiles).where(eq(cnabFiles.id, id)).limit(1);
   return result.length > 0 ? result[0] : null;
 }
 
 export async function updateCnabFileStatus(id: number, status: string, qprofNumber?: string) {
   const db = await getDb();
-  // if (!db) throw new Error("Database not available"); // Não é mais necessário
+
   const updateData: any = { status, processedAt: new Date() };
   if (qprofNumber) updateData.qprofNumber = qprofNumber;
   await db.update(cnabFiles).set(updateData).where(eq(cnabFiles.id, id));
@@ -144,7 +139,7 @@ export async function updateCnabFileStatus(id: number, status: string, qprofNumb
 
 export async function addLog(fileId: number, message: string) {
   const db = await getDb();
-  // if (!db) throw new Error("Database not available"); // Não é mais necessário
+
   
   // Sanitizar e limitar tamanho da mensagem
   let sanitized = message.replace(/\x00/g, '').substring(0, 5000);
@@ -157,14 +152,14 @@ export async function addLog(fileId: number, message: string) {
 
 export async function getFileLogs(fileId: number) {
   const db = await getDb();
-  // if (!db) return []; // Não é mais necessário
+
   return db.select().from(cnabLogs).where(eq(cnabLogs.fileId, fileId.toString())).orderBy(desc(cnabLogs.timestamp));
 }
 
 
 export async function addScreenshot(data: { fileId: number; step: number; name: string; path: string }) {
   const db = await getDb();
-  // if (!db) throw new Error("Database not available"); // Não é mais necessário
+
   
   const { cnabScreenshots } = await import("../drizzle/schema");
   
@@ -185,32 +180,21 @@ export async function createAutomationRoutine(data: {
   company: string;
   folderPath: string;
   frequency: 'hourly' | 'daily' | 'weekly';
+  dailyRunTime?: string | null;
 }) {
   const db = await getDb();
-  // if (!db) throw new Error("Database not available"); // Não é mais necessário
+
   
   const { automationRoutines } = await import("../drizzle/schema");
   
-  // Calcular próxima execução
-  const now = new Date();
-  let nextRun = new Date();
-  switch (data.frequency) {
-    case 'hourly':
-      nextRun = new Date(now.getTime() + 60 * 60 * 1000);
-      break;
-    case 'daily':
-      nextRun = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      break;
-    case 'weekly':
-      nextRun = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-      break;
-  }
+  const nextRun = calculateNextRun(data.frequency, data.dailyRunTime);
   
   const result = await db.insert(automationRoutines).values({
     name: data.name,
     company: data.company,
     folderPath: data.folderPath,
     frequency: data.frequency,
+    dailyRunTime: data.dailyRunTime,
     status: 'active',
     nextRun,
   });
@@ -220,7 +204,7 @@ export async function createAutomationRoutine(data: {
 
 export async function listAutomationRoutines() {
   const db = await getDb();
-  // if (!db) return []; // Não é mais necessário
+
   
   const { automationRoutines } = await import("../drizzle/schema");
   return db.select().from(automationRoutines).orderBy(desc(automationRoutines.createdAt));
@@ -228,7 +212,7 @@ export async function listAutomationRoutines() {
 
 export async function getAutomationRoutine(id: number) {
   const db = await getDb();
-  // if (!db) return null; // Não é mais necessário
+
   
   const { automationRoutines } = await import("../drizzle/schema");
   const result = await db.select().from(automationRoutines).where(eq(automationRoutines.id, id)).limit(1);

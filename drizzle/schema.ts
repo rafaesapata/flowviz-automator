@@ -58,6 +58,7 @@ export const automationRoutines = mysqlTable("automationRoutines", {
   company: varchar("company", { length: 255 }).notNull(),
   folderPath: varchar("folderPath", { length: 500 }).notNull(),
   frequency: mysqlEnum("frequency", ["hourly", "daily", "weekly"]).notNull(),
+  dailyRunTime: varchar("dailyRunTime", { length: 5 }), // Formato "HH:MM"
   status: mysqlEnum("status", ["active", "paused", "error"]).default("active").notNull(),
   lastRun: timestamp("lastRun"),
   nextRun: timestamp("nextRun"),

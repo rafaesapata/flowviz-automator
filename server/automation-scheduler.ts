@@ -1,4 +1,5 @@
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { logger } from './_core/logger';
@@ -8,33 +9,52 @@ import { eq, and } from 'drizzle-orm';
 import { processQProfFile } from './qprof-automation';
 
 // Calcular hash MD5 de um arquivo
-function calculateFileHash(filepath: string): string {
-  const fileBuffer = fs.readFileSync(filepath);
+async function calculateFileHash(filepath: string): Promise<string> {
+  const fileBuffer = await fs.promises.readFile(filepath);
   return crypto.createHash('md5').update(fileBuffer).digest('hex');
 }
 
 // Calcular próxima execução baseado na frequência
-function calculateNextRun(frequency: 'hourly' | 'daily' | 'weekly'): Date {
+export function calculateNextRun(frequency: 'hourly' | 'daily' | 'weekly', dailyRunTime?: string | null): Date {
   const now = new Date();
   switch (frequency) {
     case 'hourly':
       return new Date(now.getTime() + 60 * 60 * 1000); // +1 hora
     case 'daily':
-      return new Date(now.getTime() + 24 * 60 * 60 * 1000); // +1 dia
+      const nextDailyRun = new Date(now);
+      if (dailyRunTime) {
+        const [hours, minutes] = dailyRunTime.split(':').map(Number);
+        nextDailyRun.setHours(hours, minutes, 0, 0);
+      }
+      
+      // Se o horário de execução já passou para hoje, agendar para amanhã
+      if (nextDailyRun <= now) {
+        nextDailyRun.setDate(nextDailyRun.getDate() + 1);
+      }
+      return nextDailyRun;
     case 'weekly':
       return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // +1 semana
   }
 }
 
 // Listar arquivos .RET de uma pasta
-function listRetFiles(folderPath: string): string[] {
+export async function listRetFiles(folderPath: string): Promise<string[]> {
   try {
-    if (!fs.existsSync(folderPath)) {
-      logger.warn(`Pasta não existe: ${folderPath}`);
+    if (!await fs.access(folderPath, fsSync.constants.F_OK).then(() => true).catch(() => false)) {
+      logger.info(`Pasta não existe: ${folderPath}. Criando...`);
+      await fs.mkdir(folderPath, { recursive: true });
+      logger.info(`Pasta ${folderPath} criada com sucesso.`);
+    }
+
+    try {
+      await fs.access(folderPath, fsSync.constants.R_OK | fsSync.constants.W_OK);
+      logger.info(`Permissões de leitura/escrita OK para a pasta: ${folderPath}`);
+    } catch (err) {
+      logger.error({ error: err }, `Sem permissões de leitura/escrita para a pasta: ${folderPath}. Erro: ${err.message}`);
       return [];
     }
     
-    const files = fs.readdirSync(folderPath);
+    const files = await fs.readdir(folderPath);
     return files
       .filter(f => f.toUpperCase().endsWith('.RET'))
       .map(f => path.join(folderPath, f));
@@ -132,7 +152,7 @@ export async function executeRoutine(routineId: number): Promise<{
     logger.info(`  Frequência: ${config.frequency}`);
     
     // Listar arquivos da pasta
-    const files = listRetFiles(config.folderPath);
+    const files = await listRetFiles(config.folderPath);
     logger.info(`[Rotina ${routineId}] Encontrados ${files.length} arquivos .RET`);
     
     let filesProcessed = 0;
@@ -141,7 +161,7 @@ export async function executeRoutine(routineId: number): Promise<{
     // Processar cada arquivo
     for (const filepath of files) {
       const filename = path.basename(filepath);
-      const fileHash = calculateFileHash(filepath);
+      const fileHash = await calculateFileHash(filepath);
       
       logger.info(`[Rotina ${routineId}] Verificando arquivo: ${filename}`);
       
@@ -189,7 +209,7 @@ export async function executeRoutine(routineId: number): Promise<{
     }
     
     // Atualizar rotina
-    const nextRun = calculateNextRun(config.frequency);
+    const nextRun = calculateNextRun(config.frequency, config.dailyRunTime);
     await (await getDb()).update(automationRoutines)
       .set({
         lastRun: new Date(),
