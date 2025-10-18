@@ -10,7 +10,7 @@ import { processQProfFile } from './qprof-automation';
 
 // Calcular hash MD5 de um arquivo
 async function calculateFileHash(filepath: string): Promise<string> {
-  const fileBuffer = await fs.promises.readFile(filepath);
+  const fileBuffer = await fs.readFile(filepath);
   return crypto.createHash('md5').update(fileBuffer).digest('hex');
 }
 
@@ -23,8 +23,19 @@ export function calculateNextRun(frequency: 'hourly' | 'daily' | 'weekly', daily
     case 'daily':
       const nextDailyRun = new Date(now);
       if (dailyRunTime) {
-        const [hours, minutes] = dailyRunTime.split(':').map(Number);
-        nextDailyRun.setHours(hours, minutes, 0, 0);
+        const timeParts = dailyRunTime.split(":");
+        if (timeParts.length === 2) {
+          const hours = parseInt(timeParts[0], 10);
+          const minutes = parseInt(timeParts[1], 10);
+
+          if (!isNaN(hours) && !isNaN(minutes)) {
+            nextDailyRun.setHours(hours, minutes, 0, 0);
+          } else {
+            logger.warn(`Formato de dailyRunTime inválido: ${dailyRunTime}. Usando o horário atual para o cálculo.`);
+          }
+        } else {
+          logger.warn(`Formato de dailyRunTime inválido: ${dailyRunTime}. Usando o horário atual para o cálculo.`);
+        }
       }
       
       // Se o horário de execução já passou para hoje, agendar para amanhã
@@ -40,27 +51,48 @@ export function calculateNextRun(frequency: 'hourly' | 'daily' | 'weekly', daily
 // Listar arquivos .RET de uma pasta
 export async function listRetFiles(folderPath: string): Promise<string[]> {
   try {
-    if (!await fs.access(folderPath, fsSync.constants.F_OK).then(() => true).catch(() => false)) {
-      logger.info(`Pasta não existe: ${folderPath}. Criando...`);
-      await fs.mkdir(folderPath, { recursive: true });
-      logger.info(`Pasta ${folderPath} criada com sucesso.`);
-    }
+    // Tenta ler o diretório. Se não existir, a exceção será capturada.
+    const files = await fs.readdir(folderPath);
 
+    // Se chegou aqui, a pasta existe e foi possível ler.
+    // Agora, verificar permissões de escrita.
     try {
       await fs.access(folderPath, fsSync.constants.R_OK | fsSync.constants.W_OK);
       logger.info(`Permissões de leitura/escrita OK para a pasta: ${folderPath}`);
-    } catch (err) {
-      logger.error({ error: err }, `Sem permissões de leitura/escrita para a pasta: ${folderPath}. Erro: ${err.message}`);
+    } catch (err: unknown) {
+      let errorMessage = 'Erro desconhecido ao verificar permissões.';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      logger.error({ error: err }, `Sem permissões de leitura/escrita para a pasta: ${folderPath}. Erro: ${errorMessage}`);
       return [];
     }
-    
-    const files = await fs.readdir(folderPath);
     return files
       .filter(f => f.toUpperCase().endsWith('.RET'))
       .map(f => path.join(folderPath, f));
-  } catch (error: any) {
-    logger.error({ error }, `Erro ao listar arquivos: ${error.message}`);
-    return [];
+  } catch (error: unknown) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      logger.info(`Pasta não existe: ${folderPath}. Criando...`);
+      try {
+        await fs.mkdir(folderPath, { recursive: true });
+        logger.info(`Pasta ${folderPath} criada com sucesso. Nenhum arquivo .RET encontrado ainda.`);
+        return []; // Retorna array vazio, pois a pasta acabou de ser criada
+      } catch (mkdirError: unknown) {
+        let errorMessage = 'Erro desconhecido ao criar pasta.';
+        if (mkdirError instanceof Error) {
+          errorMessage = mkdirError.message;
+        }
+        logger.error({ error: mkdirError }, `Erro ao criar pasta: ${errorMessage}`);
+        return [];
+      }
+    } else {
+      let errorMessage = 'Erro desconhecido ao listar arquivos.';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      logger.error({ error }, `Erro ao listar arquivos: ${errorMessage}`);
+      return [];
+    }
   }
 }
 
@@ -201,9 +233,13 @@ export async function executeRoutine(routineId: number): Promise<{
           await updateMonitoredFileStatus(monitoredId, 'error', null, result.error);
           errors++;
         }
-      } catch (error: any) {
-        logger.error({ error }, `[Rotina ${routineId}] ❌ Exceção ao processar: ${filename} - ${error.message}`);
-        await updateMonitoredFileStatus(monitoredId, 'error', null, error.message);
+      } catch (error: unknown) {
+        let errorMessage = 'Erro desconhecido ao processar arquivo.';
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        logger.error({ error }, `[Rotina ${routineId}] ❌ Exceção ao processar: ${filename} - ${errorMessage}`);
+        await updateMonitoredFileStatus(monitoredId, 'error', null, errorMessage);
         errors++;
       }
     }
@@ -224,8 +260,12 @@ export async function executeRoutine(routineId: number): Promise<{
     logger.info(`  Próxima execução: ${nextRun.toLocaleString('pt-BR')}`);
     
     return { success: true, filesProcessed, errors };
-  } catch (error: any) {
-    logger.fatal({ error }, `[Rotina ${routineId}] Erro fatal: ${error.message}`);
+  } catch (error: unknown) {
+    let errorMessage = 'Erro desconhecido na execução da rotina.';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    logger.fatal({ error }, `[Rotina ${routineId}] Erro fatal: ${errorMessage}`);
     
     // Marcar rotina como erro
     await (await getDb()).update(automationRoutines)
