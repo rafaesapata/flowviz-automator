@@ -1,8 +1,10 @@
 import "dotenv/config";
+import { QPROF_CONFIG } from "../qprof-automation";
 import { logger } from "./logger";
 import { getDb } from "../db";
 import express from "express";
 import { createServer } from "http";
+import { Browser } from 'puppeteer';
 import net from "net";
 import path from "path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -90,6 +92,16 @@ async function startServer() {
         }).catch((error) => logger.error({ error }, "Erro ao iniciar o scheduler de automação"));
   });
 }
+
+process.on('uncaughtException', (error) => {
+  logger.fatal({ error }, 'Uncaught Exception detectada! Encerrando o processo...');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.fatal({ reason, promise }, 'Unhandled Rejection detectada! Encerrando o processo...');
+  process.exit(1);
+});
 
 startServer().catch((error) => logger.fatal({ error }, "Erro fatal ao iniciar o servidor"));
 

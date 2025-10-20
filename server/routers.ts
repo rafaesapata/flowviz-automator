@@ -77,7 +77,7 @@ export const appRouter = router({
         await db.addLog(input.fileId, `Iniciando processamento${input.company ? ` na empresa: ${input.company}` : ''}...`);
 
         try {
-          const result = await processQProfFile(input.fileId.toString(), file.filename, file.filePath, input.company);
+          const result = await processQProfFile(input.fileId, file.filePath, input.company || process.env.QPROF_COMPANY || "");
           
           if (result.success) {
             await db.updateCnabFileStatus(input.fileId, 'completed', result.qprofNumber);

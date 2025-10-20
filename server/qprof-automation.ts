@@ -125,11 +125,10 @@ async function loginQProf(page: Page, fileId: number): Promise<boolean> {
     await addLog(fileId, 'Campos de usuário e senha encontrados.');
 
     // Preencher credenciais
-    await addLog(fileId, `Preenchendo usuário: ${QPROF_CONFIG.username}`);
-    await page.type('input[placeholder="Usuário"]', QPROF_CONFIG.username);
+    await addLog(fileId, `Preenchendo usuário: ${QPROF_CONFIG.credentials.username}`);
+    await page.type("input[placeholder=\"Usuário\"]", QPROF_CONFIG.credentials.username);
     await addLog(fileId, `Preenchendo senha.`);
-    await page.type('input[placeholder="Senha"]', QPROF_CONFIG.password);
-    
+    await page.type("input[placeholder=\"Senha\"]", QPROF_CONFIG.credentials.password); 
     await takeScreenshot(page, fileId, 1, '02_credenciais_preenchidas');
     
     // Verificar se o botão de login está presente
@@ -491,9 +490,10 @@ async function verifyImport(page: Page, fileId: number, filename: string): Promi
   }
 }
 
-export async function processQProfFile(fileId: number, filePath: string, company: string): Promise<{ success: boolean; error?: string; qprofNumber?: string }> {
+export async function processQProfFile(fileId: number, filePath: string, company: string = 'FLOWINVEST'): Promise<{ success: boolean; error?: string; qprofNumber?: string }> {
   console.log(`[QPROF AUTOMATION] Iniciando processQProfFile para fileId: ${fileId}`);
   console.log(`[QPROF AUTOMATION] QPROF_CONFIG.baseUrl no início de processQProfFile: ${QPROF_CONFIG.baseUrl}`);
+  console.log(`[QPROF AUTOMATION] process.env.QPROF_COMPANY: ${process.env.QPROF_COMPANY}`);
   console.log(`[QPROF AUTOMATION] Company no início de processQProfFile: ${company}`);
 
   let browser: Browser | null = null;
@@ -510,10 +510,11 @@ export async function processQProfFile(fileId: number, filePath: string, company
     await updateCnabFileStatus(numericId, 'processing');
     console.log(`[QPROF AUTOMATION] Status do arquivo ${numericId} atualizado para 'processing'.`);
     
+    console.log(`[QPROF AUTOMATION] Puppeteer launch options: headless=${true}, devtools=${false}`);
     browser = await puppeteer.launch({
       headless: true,
       devtools: false,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--no-zygote', '--disable-gpu']
     });
     const page = await browser.newPage();
     
