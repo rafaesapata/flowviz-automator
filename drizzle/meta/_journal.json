@@ -15,6 +15,13 @@
       "when": 1760826951678,
       "tag": "0001_colossal_brother_voodoo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1760967937568,
+      "tag": "0002_modern_kree",
+      "breakpoints": true
     }
   ]
 }

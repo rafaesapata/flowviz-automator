@@ -9,6 +9,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -52,9 +53,9 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   
   // Serve screenshots folder
-  app.use('/screenshots', express.static(path.join(process.cwd(), 'public', 'screenshots')));
+  app.use("/screenshots", express.static(path.join(process.cwd(), "public", "screenshots")));
   // OAuth callback under /api/oauth/callback
-  registerOAuthRoutes(app);
+  // registerOAuthRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",
@@ -63,6 +64,7 @@ async function startServer() {
       createContext,
     })
   );
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
@@ -83,9 +85,11 @@ async function startServer() {
     // Iniciar scheduler de automação
     // Importar dinamicamente para evitar problemas de dependência circular e garantir que o DB esteja pronto
     import("../automation-scheduler").then(({ startScheduler }) => {
-      startScheduler();
+      // startScheduler();
+      logger.warn("Scheduler desativado para depuração.");
         }).catch((error) => logger.error({ error }, "Erro ao iniciar o scheduler de automação"));
   });
 }
 
 startServer().catch((error) => logger.fatal({ error }, "Erro fatal ao iniciar o servidor"));
+

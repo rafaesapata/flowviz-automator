@@ -1,0 +1,1 @@
+ALTER TABLE `automationRoutines` ADD `dailyRunTime` varchar(5);

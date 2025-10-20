@@ -1,3 +1,5 @@
+import { logger } from "./_core/logger";
+
 export const QPROF_CONFIG = {
   baseUrl: process.env.QPROF_BASE_URL || "https://qprof.flowinvest.capital",
   credentials: {
@@ -8,4 +10,6 @@ export const QPROF_CONFIG = {
     return `${this.baseUrl}/Billing/FCO001.aspx`;
   }
 };
+
+logger.info(`QPROF_CONFIG.baseUrl carregado: ${QPROF_CONFIG.baseUrl}`);
 

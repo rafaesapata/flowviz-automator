@@ -10,15 +10,17 @@ const SIMPLE_USER = {
 const JWT_SECRET = process.env.JWT_SECRET || 'simple-secret-key';
 
 export function simpleLogin(email: string, password: string) {
+  console.log(`DEBUG: Tentativa de login com email: ${email}, senha: ${password}`);
+  console.log(`DEBUG: Credenciais esperadas: email: ${SIMPLE_USER.email}, senha: ${SIMPLE_USER.password}`);
   if (email === SIMPLE_USER.email && password === SIMPLE_USER.password) {
     const token = jwt.sign(
       { email: SIMPLE_USER.email, name: SIMPLE_USER.name },
       JWT_SECRET,
       { expiresIn: '7d' }
-    );
-    return { success: true, token, user: { email: SIMPLE_USER.email, name: SIMPLE_USER.name } };
+    );    return { success: true, token, user: { email: SIMPLE_USER.email, name: SIMPLE_USER.name } };
   }
-  return { success: false, error: 'Credenciais inválidas' };
+  console.log("DEBUG: Credenciais inválidas.");
+    return { success: false, error: 'Credenciais inválidas' };
 }
 
 export function verifySimpleToken(token: string) {

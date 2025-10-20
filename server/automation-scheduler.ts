@@ -278,6 +278,8 @@ export async function executeRoutine(routineId: number): Promise<{
 
 // Verificar e executar rotinas pendentes
 export async function checkAndExecuteRoutines() {
+  logger.warn("[Scheduler] checkAndExecuteRoutines temporariamente desativado para depuração.");
+  return;
   logger.info('[Scheduler] Verificando rotinas pendentes...');
   
   const now = new Date();
@@ -306,6 +308,8 @@ export async function checkAndExecuteRoutines() {
 let schedulerInterval: NodeJS.Timeout | null = null;
 
 export function startScheduler() {
+  logger.warn("[Scheduler] startScheduler temporariamente desativado para depuração.");
+  return;
   if (schedulerInterval) {
     logger.warn('[Scheduler] Scheduler já está rodando');
     return;
@@ -325,6 +329,8 @@ export function startScheduler() {
 }
 
 export function stopScheduler() {
+  logger.warn("[Scheduler] stopScheduler temporariamente desativado para depuração.");
+  return;
   if (schedulerInterval) {
     clearInterval(schedulerInterval);
     schedulerInterval = null;

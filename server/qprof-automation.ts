@@ -93,31 +93,71 @@ async function changeCompany(page: Page, fileId: number, companyName: string): P
 
 async function loginQProf(page: Page, fileId: number): Promise<boolean> {
   try {
-    await addLog(fileId, 'Acessando sistema QPROF');
-    await page.goto(QPROF_CONFIG.baseUrl, { waitUntil: 'networkidle2' });
+    console.log(`[QPROF AUTOMATION] Verificando QPROF_CONFIG.baseUrl: ${QPROF_CONFIG.baseUrl}`);
+    await addLog(fileId, `Tentando navegar para: ${QPROF_CONFIG.baseUrl}`);
+    try {
+      await page.goto(QPROF_CONFIG.baseUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+      await addLog(fileId, `Navegação bem-sucedida para: ${page.url()}`);
+    } catch (navError: any) {
+      await addLog(fileId, `Erro durante a navegação para ${QPROF_CONFIG.baseUrl}: ${navError.message}`);
+      await takeScreenshot(page, fileId, 0, '00_erro_navegacao');
+      return false;
+    }
     await delay(2000);
     
-    await takeScreenshot(page, fileId, 0, '01_pagina_login');
-    
+    // Tirar screenshot da página de login antes de preencher as credenciais
+    await takeScreenshot(page, fileId, 0, '01_pagina_login_antes_preencher');
+
+    // Verificar se os campos de usuário e senha estão presentes
+    const usernameField = await page.$('input[placeholder="Usuário"]');
+    const passwordField = await page.$('input[placeholder="Senha"]');
+
+    if (!usernameField) {
+      await addLog(fileId, 'Erro: Campo de usuário não encontrado na página de login do QPROF.');
+      await takeScreenshot(page, fileId, 1, '02_erro_campo_usuario_nao_encontrado');
+      return false;
+    }
+    if (!passwordField) {
+      await addLog(fileId, 'Erro: Campo de senha não encontrado na página de login do QPROF.');
+      await takeScreenshot(page, fileId, 1, '02_erro_campo_senha_nao_encontrado');
+      return false;
+    }
+    await addLog(fileId, 'Campos de usuário e senha encontrados.');
+
     // Preencher credenciais
-    await addLog(fileId, 'Preenchendo credenciais - user: OK');
+    await addLog(fileId, `Preenchendo usuário: ${QPROF_CONFIG.username}`);
     await page.type('input[placeholder="Usuário"]', QPROF_CONFIG.username);
+    await addLog(fileId, `Preenchendo senha.`);
     await page.type('input[placeholder="Senha"]', QPROF_CONFIG.password);
     
     await takeScreenshot(page, fileId, 1, '02_credenciais_preenchidas');
     
+    // Verificar se o botão de login está presente
+    const loginButton = await page.$('input[type="button"][value="Entrar"], input[type="submit"][value="Entrar"]');
+    if (!loginButton) {
+      await addLog(fileId, 'Erro: Botão de login "Entrar" não encontrado na página de login do QPROF.');
+      await takeScreenshot(page, fileId, 2, '03_erro_botao_login_nao_encontrado');
+      return false;
+    }
+    await addLog(fileId, 'Botão de login "Entrar" encontrado.');
+
     // Clicar em Entrar
     await addLog(fileId, 'Clicando em Entrar');
-    await page.click('input[type="button"][value="Entrar"], input[type="submit"][value="Entrar"]');
+    await loginButton.click();
     await delay(3000);
-    
+    await addLog(fileId, `URL após clicar em Entrar: ${page.url()}`);
     await takeScreenshot(page, fileId, 2, '03_apos_clicar_entrar');
     
-    // Verificar se precisa confirmar desconexão
-    const currentUrl = page.url();
-    await addLog(fileId, `URL atual após login: ${currentUrl}`);
+    // Adicionar um log para verificar se a página ainda é a de login após o clique
+    const currentUrlAfterClick = page.url();
+    if (currentUrlAfterClick.includes('Login.aspx')) {
+      await addLog(fileId, 'Ainda na página de login após o clique. Login pode ter falhado ou requer confirmação.');
+    } else {
+      await addLog(fileId, 'Redirecionado para fora da página de login após o clique.');
+    }
     
-    if (currentUrl.includes('Login.aspx')) {
+    // Verificar se precisa confirmar desconexão
+    if (currentUrlAfterClick.includes('Login.aspx')) { // Apenas se ainda estiver na página de login
       await addLog(fileId, 'Confirmando desconexão de outro local');
       await page.evaluate(() => {
         const buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"]'));
@@ -137,7 +177,7 @@ async function loginQProf(page: Page, fileId: number): Promise<boolean> {
     
     return true;
   } catch (error: any) {
-    await addLog(fileId, `Erro no login: ${error.message}`);
+    await addLog(fileId, `Erro no login QPROF: ${error.message}. Stack: ${error.stack}, FileID: ${fileId}`);
     return false;
   }
 }
@@ -195,7 +235,7 @@ async function navigateToCobranca(page: Page, fileId: number): Promise<boolean> 
     
     return true;
   } catch (error: any) {
-    await addLog(fileId, `Erro na navegação: ${error.message}`);
+    await addLog(fileId, `Erro na navegação: ${error.message}. Stack: ${error.stack}, FileID: ${fileId}`);
     return false;
   }
 }
@@ -247,15 +287,13 @@ async function accessRetBancario(page: Page, fileId: number): Promise<boolean> {
       return text.includes('Arquivo de Retorno') || text.includes('Banco') || text.includes('Selecionar');
     });
     
-    await addLog(fileId, `Conteúdo de Ret. Bancário detectado: ${contentLoaded}`);
-    
     if (!contentLoaded) {
       await addLog(fileId, 'Aviso: Conteúdo de Ret. Bancário pode não ter carregado completamente');
     }
     
     return true;
   } catch (error: any) {
-    await addLog(fileId, `Erro ao acessar Ret. Bancário: ${error.message}`);
+    await addLog(fileId, `Erro ao acessar Ret. Bancário: ${error.message}. Stack: ${error.stack}, FileID: ${fileId}`);
     return false;
   }
 }
@@ -411,7 +449,7 @@ async function importFile(page: Page, fileId: number, filePath: string): Promise
     
     return true;
   } catch (error: any) {
-    await addLog(fileId, `Erro ao importar arquivo: ${error.message}`);
+    await addLog(fileId, `Erro ao importar arquivo: ${error.message}. Stack: ${error.stack}, FileID: ${fileId}`);
     return false;
   }
 }
@@ -448,79 +486,88 @@ async function verifyImport(page: Page, fileId: number, filename: string): Promi
       return null;
     }
   } catch (error: any) {
-    await addLog(fileId, `Erro ao verificar importação: ${error.message}`);
+    await addLog(fileId, `Erro ao verificar importação: ${error.message}. Stack: ${error.stack}, FileID: ${fileId}`);
     return null;
   }
 }
 
-export async function processQProfFile(fileId: string, filename: string, filePath: string, company?: string) {
+export async function processQProfFile(fileId: number, filePath: string, company: string): Promise<{ success: boolean; error?: string; qprofNumber?: string }> {
+  console.log(`[QPROF AUTOMATION] Iniciando processQProfFile para fileId: ${fileId}`);
+  console.log(`[QPROF AUTOMATION] QPROF_CONFIG.baseUrl no início de processQProfFile: ${QPROF_CONFIG.baseUrl}`);
+  console.log(`[QPROF AUTOMATION] Company no início de processQProfFile: ${company}`);
+
   let browser: Browser | null = null;
-  const numericId = parseInt(fileId);
+  const numericId = parseInt(fileId.toString()); // Ensure fileId is a number
   
   if (isNaN(numericId)) {
-    await addLog(parseInt(fileId) || 0, `Erro fatal: Invalid fileId: ${fileId}`);
+    await addLog(parseInt(fileId.toString()) || 0, `Erro fatal: Invalid fileId: ${fileId}`);
     return { success: false, error: 'Invalid fileId' };
   }
   
   try {
-    await addLog(numericId, 'Iniciando importação do arquivo');
+    await addLog(numericId, `Iniciando importação do arquivo. FilePath: ${filePath}, Company: ${company}, FileID: ${fileId}`);
+    console.log(`[QPROF AUTOMATION] Tentando processar arquivo: ${filePath}`);
     await updateCnabFileStatus(numericId, 'processing');
+    console.log(`[QPROF AUTOMATION] Status do arquivo ${numericId} atualizado para 'processing'.`);
     
     browser = await puppeteer.launch({
       headless: true,
+      devtools: false,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-    
     const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
     
-    // 1. Login
-    const loginSuccess = await loginQProf(page, numericId);
-    if (!loginSuccess) {
-      await updateCnabFileStatus(numericId, 'error');
+    // Configurar o tamanho da viewport para garantir que todos os elementos estejam visíveis
+    await page.setViewport({ width: 1366, height: 768 });
+
+    // 1. Login no QPROF
+    const loggedIn = await loginQProf(page, numericId);
+    if (!loggedIn) {
+      await addLog(numericId, 'Falha no login do QPROF.');
       return { success: false, error: 'Login falhou' };
     }
     
-    // 2. Trocar empresa (se especificado)
-    if (company) {
-      const companySuccess = await changeCompany(page, numericId, company);
-      if (!companySuccess) {
-        await updateCnabFileStatus(numericId, 'error');
-        return { success: false, error: 'Troca de empresa falhou' };
-      }
+    // 2. Trocar de empresa (se necessário)
+    const companyChanged = await changeCompany(page, numericId, company);
+    if (!companyChanged) {
+      await addLog(numericId, 'Falha ao trocar de empresa.');
+      return { success: false, error: 'Falha ao trocar de empresa' };
     }
-    
-    // 3. Navegar para Cobrança via busca FCO001
-    const navSuccess = await navigateToCobranca(page, numericId);
-    if (!navSuccess) {
-      await updateCnabFileStatus(numericId, 'error');
-      return { success: false, error: 'Navegação para Cobrança falhou' };
+
+    // 3. Navegar para o menu Cobrança -> FCO001
+    const navigatedToCobranca = await navigateToCobranca(page, numericId);
+    if (!navigatedToCobranca) {
+      await addLog(numericId, 'Falha ao navegar para o menu Cobrança.');
+      return { success: false, error: 'Falha ao navegar para Cobrança' };
     }
-    
+
     // 4. Acessar aba Ret. Bancário
-    const retSuccess = await accessRetBancario(page, numericId);
-    if (!retSuccess) {
-      await updateCnabFileStatus(numericId, 'error');
-      return { success: false, error: 'Acesso a Ret. Bancário falhou' };
+    const accessedRetBancario = await accessRetBancario(page, numericId);
+    if (!accessedRetBancario) {
+      await addLog(numericId, 'Falha ao acessar aba Ret. Bancário.');
+      return { success: false, error: 'Falha ao acessar Ret. Bancário' };
     }
-    
+
     // 5. Importar arquivo
-    const importSuccess = await importFile(page, numericId, filePath);
-    if (!importSuccess) {
-      await updateCnabFileStatus(numericId, 'error');
-      return { success: false, error: 'Importação falhou' };
+    const importedFile = await importFile(page, numericId, filePath);
+    if (!importedFile) {
+      await addLog(numericId, 'Falha ao importar arquivo.');
+      return { success: false, error: 'Falha ao importar arquivo' };
     }
-    
+
     // 6. Verificar importação
-    const qprofNumber = await verifyImport(page, numericId, filename);
-    
-    await addLog(numericId, 'Processamento concluído com sucesso');
-    await updateCnabFileStatus(numericId, 'completed');
-    
+    const qprofNumber = await verifyImport(page, numericId, path.basename(filePath));
+    if (!qprofNumber) {
+      await addLog(numericId, 'Falha ao verificar importação.');
+      return { success: false, error: 'Falha ao verificar importação' };
+    }
+
+    await addLog(numericId, 'Arquivo processado com sucesso no QPROF.');
     return { success: true, qprofNumber };
+
   } catch (error: any) {
-    await addLog(numericId, `Erro fatal: ${error.message}`);
-    await updateCnabFileStatus(numericId, 'error');
+    await addLog(numericId, `Erro ao processar arquivo: ${error.message}. Stack: ${error.stack}, FileID: ${numericId}`);
+    console.error(`[QPROF AUTOMATION] Erro detectado: ${error.message}`);
     return { success: false, error: error.message };
   } finally {
     if (browser) {
