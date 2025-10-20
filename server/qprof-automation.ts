@@ -1,5 +1,5 @@
 import puppeteer, { Browser, Page } from 'puppeteer';
-import { addLog, updateCnabFileStatus } from './db';
+import { addLog, updateCnabFileStatus, addScreenshot } from './db';
 import { QPROF_CONFIG } from './qprof-config';
 import path from 'path';
 import fs from 'fs';
@@ -17,6 +17,16 @@ async function takeScreenshot(page: Page, fileId: number, step: number, name: st
     const filepath = path.join(screenshotDir, filename);
     
     await page.screenshot({ path: filepath, fullPage: true });
+    
+    // Salvar screenshot no banco de dados
+    const relativePath = `/screenshots/${filename}`;
+    await addScreenshot({
+      fileId,
+      step,
+      name,
+      path: relativePath
+    });
+    
     await addLog(fileId, `Screenshot capturado: ${name}`);
   } catch (error: any) {
     await addLog(fileId, `Erro ao capturar screenshot: ${error.message}`);
@@ -529,10 +539,14 @@ export async function processQProfFile(fileId: number, filePath: string, company
     }
     
     // 2. Trocar de empresa (se necessário)
-    const companyChanged = await changeCompany(page, numericId, company);
-    if (!companyChanged) {
-      await addLog(numericId, 'Falha ao trocar de empresa.');
-      return { success: false, error: 'Falha ao trocar de empresa' };
+    if (company && company.trim() !== '') {
+      const companyChanged = await changeCompany(page, numericId, company);
+      if (!companyChanged) {
+        await addLog(numericId, 'Falha ao trocar de empresa.');
+        return { success: false, error: 'Falha ao trocar de empresa' };
+      }
+    } else {
+      await addLog(numericId, 'Nenhuma empresa especificada, usando empresa padrão do login.');
     }
 
     // 3. Navegar para o menu Cobrança -> FCO001
