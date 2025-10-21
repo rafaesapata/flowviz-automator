@@ -6,6 +6,52 @@ import fs from 'fs';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Armazenar o último screenshot para visualização em tempo real
+let liveScreenshotPath: string | null = null;
+let screenshotIntervalId: NodeJS.Timeout | null = null;
+
+export function getLiveScreenshotPath(): string | null {
+  return liveScreenshotPath;
+}
+
+async function startLiveScreenshotCapture(page: Page, fileId: number, intervalMs: number = 3000) {
+  const screenshotDir = path.join(process.cwd(), 'public', 'screenshots');
+  if (!fs.existsSync(screenshotDir)) {
+    fs.mkdirSync(screenshotDir, { recursive: true });
+  }
+  
+  const liveFilename = `live_${fileId}.png`;
+  const liveFilepath = path.join(screenshotDir, liveFilename);
+  liveScreenshotPath = `/screenshots/${liveFilename}`;
+  
+  // Capturar screenshot inicial
+  try {
+    await page.screenshot({ path: liveFilepath, fullPage: false });
+  } catch (error) {
+    console.error('Erro ao capturar screenshot inicial:', error);
+  }
+  
+  // Iniciar captura em intervalo
+  screenshotIntervalId = setInterval(async () => {
+    try {
+      await page.screenshot({ path: liveFilepath, fullPage: false });
+    } catch (error) {
+      // Ignorar erros (pode acontecer se a página estiver navegando)
+    }
+  }, intervalMs);
+  
+  await addLog(fileId, `Captura de screenshots em tempo real iniciada (intervalo: ${intervalMs}ms)`);
+}
+
+function stopLiveScreenshotCapture(fileId: number) {
+  if (screenshotIntervalId) {
+    clearInterval(screenshotIntervalId);
+    screenshotIntervalId = null;
+    liveScreenshotPath = null;
+    addLog(fileId, 'Captura de screenshots em tempo real finalizada');
+  }
+}
+
 async function takeScreenshot(page: Page, fileId: number, step: number, name: string) {
   try {
     const screenshotDir = path.join(process.cwd(), 'public', 'screenshots');
@@ -662,6 +708,9 @@ export async function processQProfFile(fileId: number, filePath: string, company
     
     // Configurar o tamanho da viewport para garantir que todos os elementos estejam visíveis
     await page.setViewport({ width: 1366, height: 768 });
+    
+    // Iniciar captura de screenshots em tempo real (a cada 3 segundos)
+    await startLiveScreenshotCapture(page, numericId, 3000);
 
     // 1. Login no QPROF
     const loggedIn = await loginQProf(page, numericId);
@@ -717,6 +766,9 @@ export async function processQProfFile(fileId: number, filePath: string, company
     console.error(`[QPROF AUTOMATION] Erro detectado: ${error.message}`);
     return { success: false, error: error.message };
   } finally {
+    // Parar captura de screenshots em tempo real
+    stopLiveScreenshotCapture(numericId);
+    
     if (browser) {
       await browser.close();
     }

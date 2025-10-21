@@ -4,7 +4,7 @@ import { simpleLogin, verifySimpleToken } from './simple-auth';
 import * as db from './db';
 import * as fs from 'fs';
 import * as path from 'path';
-import { processQProfFile } from './qprof-automation';
+import { processQProfFile, getLiveScreenshotPath } from './qprof-automation';
 import { listScreenshots } from './screenshots';
 
 export const appRouter = router({
@@ -105,6 +105,12 @@ export const appRouter = router({
       .input(z.object({ fileId: z.number() }))
       .query(async ({ input }) => {
         return await listScreenshots(input.fileId);
+      }),
+    
+    getLiveScreenshot: publicProcedure
+      .query(() => {
+        const path = getLiveScreenshotPath();
+        return { path, timestamp: Date.now() };
       }),
   }),
 

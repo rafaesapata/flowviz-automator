@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, FileText, Activity, CheckCircle, XCircle, AlertTriangle, Info } from "lucide-react";
 import { useRoute, useLocation } from "wouter";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export default function FileDetails() {
   const [, params] = useRoute("/file/:id");
@@ -21,6 +21,12 @@ export default function FileDetails() {
     { fileId: parseInt(fileId!) },
     { enabled: !!fileId, refetchInterval: 5000 }
   );
+  const { data: liveScreenshot } = trpc.cnab.getLiveScreenshot.useQuery(
+    undefined,
+    { enabled: file?.status === "processing", refetchInterval: 2000 }
+  );
+  
+  const [showLiveView, setShowLiveView] = useState(false);
 
   const file = files.find(f => f.id === parseInt(fileId!));
 
@@ -133,6 +139,37 @@ export default function FileDetails() {
             </CardContent>
           </Card>
         </div>
+
+        {file.status === "processing" && liveScreenshot?.path && (
+          <Card className="mb-6">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Visualização em Tempo Real</CardTitle>
+                  <CardDescription>Veja o que está acontecendo agora no navegador</CardDescription>
+                </div>
+                <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300 gap-2">
+                  <Activity className="h-3 w-3 animate-pulse" />
+                  Ao Vivo
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-lg overflow-hidden bg-gray-50">
+                <img 
+                  src={`${liveScreenshot.path}?t=${liveScreenshot.timestamp}`}
+                  alt="Visualização em tempo real"
+                  className="w-full h-auto"
+                  onClick={() => window.open(`${liveScreenshot.path}?t=${liveScreenshot.timestamp}`, '_blank')}
+                  style={{ cursor: 'pointer' }}
+                />
+              </div>
+              <div className="mt-2 text-xs text-gray-500 text-center">
+                Atualiza automaticamente a cada 2 segundos
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {screenshots.length > 0 && (
           <Card className="mb-6">
