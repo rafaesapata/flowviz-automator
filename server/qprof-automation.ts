@@ -115,18 +115,30 @@ async function changeCompany(page: Page, fileId: number, companyName: string): P
     
     const companyClicked = await page.evaluate((targetCompany) => {
       const links = Array.from(document.querySelectorAll('a'));
+      const matchingLinks = [];
+      
+      // Primeiro, encontrar todos os links que contêm o nome da empresa
       for (const link of links) {
         const text = (link.textContent || '').trim();
-        // Procurar pela empresa exata (case insensitive)
         if (text.toUpperCase().includes(targetCompany.toUpperCase())) {
-          // Verificar se não está em negrito (empresa atual)
           const style = window.getComputedStyle(link);
-          if (style.fontWeight !== 'bold' && style.fontWeight !== '700') {
-            link.click();
-            return true;
-          }
+          const fontWeight = parseInt(style.fontWeight) || (style.fontWeight === 'bold' ? 700 : 400);
+          matchingLinks.push({ link, text, fontWeight });
         }
       }
+      
+      // Se encontrou múltiplos links, clicar no que NÃO está em negrito
+      if (matchingLinks.length > 1) {
+        // Ordenar por fontWeight (menor primeiro = não negrito)
+        matchingLinks.sort((a, b) => a.fontWeight - b.fontWeight);
+        matchingLinks[0].link.click();
+        return true;
+      } else if (matchingLinks.length === 1) {
+        // Se só tem um, clicar nele
+        matchingLinks[0].link.click();
+        return true;
+      }
+      
       return false;
     }, companyName);
     
