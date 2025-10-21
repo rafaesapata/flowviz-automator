@@ -21,14 +21,15 @@ export default function FileDetails() {
     { fileId: parseInt(fileId!) },
     { enabled: !!fileId, refetchInterval: 5000 }
   );
+  
+  const file = files.find(f => f.id === parseInt(fileId!));
+  
   const { data: liveScreenshot } = trpc.cnab.getLiveScreenshot.useQuery(
     {},
     { enabled: file?.status === "processing", refetchInterval: 2000 }
   );
   
   const [showLiveView, setShowLiveView] = useState(false);
-
-  const file = files.find(f => f.id === parseInt(fileId!));
 
   useEffect(() => {
     if (file?.status === "processing") {
