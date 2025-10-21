@@ -108,6 +108,7 @@ export const appRouter = router({
       }),
     
     getLiveScreenshot: publicProcedure
+      .input(z.object({}).optional())
       .query(() => {
         const path = getLiveScreenshotPath();
         return { path, timestamp: Date.now() };
