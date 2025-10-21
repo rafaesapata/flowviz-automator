@@ -307,6 +307,125 @@ async function accessRetBancario(page: Page, fileId: number): Promise<boolean> {
   }
 }
 
+async function selectFirstAvailableDate(page: Page, fileId: number): Promise<boolean> {
+  try {
+    await addLog(fileId, 'Procurando por tela de seleção de data');
+    
+    // Procurar em todos os frames
+    const frames = page.frames();
+    
+    for (let i = 0; i < frames.length; i++) {
+      const frame = frames[i];
+      try {
+        // Verificar se existe um campo de data ou lista de datas
+        const dateFound = await frame.evaluate(() => {
+          // Procurar por inputs de data, selects com datas, ou links/botões com datas
+          const dateInputs = Array.from(document.querySelectorAll('input[type="text"], input[type="date"], select, a, button'));
+          
+          for (const element of dateInputs) {
+            const text = (element.textContent || '').trim();
+            const value = (element as HTMLInputElement).value || '';
+            const placeholder = (element as HTMLInputElement).placeholder || '';
+            
+            // Verificar se é um campo/elemento relacionado a data
+            const isDateRelated = 
+              text.match(/\d{2}\/\d{2}\/\d{4}/) || 
+              value.match(/\d{2}\/\d{2}\/\d{4}/) ||
+              placeholder.toLowerCase().includes('data') ||
+              text.toLowerCase().includes('data');
+            
+            if (isDateRelated) {
+              return true;
+            }
+          }
+          return false;
+        });
+        
+        if (dateFound) {
+          await addLog(fileId, `Tela de seleção de data encontrada no frame ${i}`);
+          
+          // Tentar selecionar a primeira data disponível
+          const dateSelected = await frame.evaluate(() => {
+            // Procurar por select com opções de data
+            const selects = Array.from(document.querySelectorAll('select'));
+            for (const select of selects) {
+              const options = Array.from(select.options);
+              // Verificar se tem opções com formato de data
+              const hasDateOptions = options.some(opt => 
+                opt.text.match(/\d{2}\/\d{2}\/\d{4}/) || opt.value.match(/\d{2}\/\d{2}\/\d{4}/)
+              );
+              
+              if (hasDateOptions && options.length > 1) {
+                // Selecionar a primeira opção (ignorando a opção vazia se houver)
+                const firstValidOption = options.find(opt => opt.value && opt.value !== '');
+                if (firstValidOption) {
+                  (select as HTMLSelectElement).value = firstValidOption.value;
+                  select.dispatchEvent(new Event('change', { bubbles: true }));
+                  return { type: 'select', value: firstValidOption.text };
+                }
+              }
+            }
+            
+            // Se não encontrou select, procurar por links/botões com datas
+            const dateElements = Array.from(document.querySelectorAll('a, button'));
+            for (const element of dateElements) {
+              const text = (element.textContent || '').trim();
+              if (text.match(/\d{2}\/\d{2}\/\d{4}/)) {
+                (element as HTMLElement).click();
+                return { type: 'click', value: text };
+              }
+            }
+            
+            return null;
+          });
+          
+          if (dateSelected) {
+            await addLog(fileId, `Data selecionada: ${dateSelected.value} (tipo: ${dateSelected.type})`);
+            await delay(2000);
+            
+            // Procurar e clicar no botão de confirmação (OK, Confirmar, Concluir, etc.)
+            const confirmClicked = await frame.evaluate(() => {
+              const buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a'));
+              for (const btn of buttons) {
+                const value = (btn as HTMLInputElement).value || '';
+                const text = (btn.textContent || '').trim().toLowerCase();
+                
+                if (
+                  value.toLowerCase() === 'ok' || 
+                  value.toLowerCase() === 'confirmar' ||
+                  value.toLowerCase() === 'concluir' ||
+                  text === 'ok' || 
+                  text === 'confirmar' ||
+                  text === 'concluir'
+                ) {
+                  (btn as HTMLElement).click();
+                  return true;
+                }
+              }
+              return false;
+            });
+            
+            if (confirmClicked) {
+              await addLog(fileId, 'Botão de confirmação clicado');
+            } else {
+              await addLog(fileId, 'Botão de confirmação não encontrado');
+            }
+            
+            return true;
+          }
+        }
+      } catch (e) {
+        // Frame pode não estar acessível
+      }
+    }
+    
+    return false;
+  } catch (error: any) {
+    await addLog(fileId, `Erro ao selecionar data: ${error.message}`);
+    return false;
+  }
+}
+
 async function importFile(page: Page, fileId: number, filePath: string): Promise<boolean> {
   try {
     await addLog(fileId, 'Procurando botão Selecionar para escolher arquivo');
@@ -454,6 +573,19 @@ async function importFile(page: Page, fileId: number, filePath: string): Promise
       await addLog(fileId, 'Botão Importar clicado, aguardando processamento...');
       await delay(8000); // Aguardar mais tempo para processamento
       await takeScreenshot(page, fileId, 16, '17_apos_importar');
+      
+      // Após clicar em Importar, pode aparecer uma tela de seleção de data
+      await addLog(fileId, 'Verificando se apareceu tela de seleção de data');
+      await delay(2000);
+      
+      const dateSelected = await selectFirstAvailableDate(page, fileId);
+      if (dateSelected) {
+        await addLog(fileId, 'Data selecionada com sucesso');
+        await delay(3000);
+        await takeScreenshot(page, fileId, 17, '18_data_selecionada');
+      } else {
+        await addLog(fileId, 'Nenhuma tela de seleção de data encontrada ou não foi necessário selecionar');
+      }
     }
     
     return true;
