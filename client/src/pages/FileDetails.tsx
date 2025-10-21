@@ -22,7 +22,7 @@ export default function FileDetails() {
     { enabled: !!fileId, refetchInterval: 5000 }
   );
   const { data: liveScreenshot } = trpc.cnab.getLiveScreenshot.useQuery(
-    undefined,
+    {},
     { enabled: file?.status === "processing", refetchInterval: 2000 }
   );
   
